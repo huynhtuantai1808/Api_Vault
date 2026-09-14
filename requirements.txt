@@ -16,3 +16,4 @@ gunicorn==22.0.0
 marshmallow==3.21.3
 Flask-CORS==4.0.1
 requests==2.32.3
+pykeepass==4.1.1

@@ -6,5 +6,6 @@ from .api_keys import api_keys_bp
 from .secrets import secrets_bp
 from .ssh import ssh_bp
 from .admin import admin_bp
+from .import_kdbx import import_bp
 
-__all__ = ["auth_bp", "api_keys_bp", "secrets_bp", "ssh_bp", "admin_bp"]
+__all__ = ["auth_bp", "api_keys_bp", "secrets_bp", "ssh_bp", "admin_bp", "import_bp"]

@@ -41,6 +41,7 @@ SWAGGER_TEMPLATE = {
         {"name": "API Keys", "description": "Generate and manage API keys with scopes"},
         {"name": "Secrets", "description": "Store and retrieve server credentials via Vault KV"},
         {"name": "SSH Certificates", "description": "Sign SSH keys via Vault SSH CA"},
+        {"name": "Import", "description": "Import credentials from KeePass .kdbx files"},
         {"name": "Admin", "description": "User management, audit logs, health"},
     ],
 }
@@ -72,12 +73,13 @@ def create_app(config=None):
     Swagger(app, template=SWAGGER_TEMPLATE, config=SWAGGER_CONFIG)
 
     # Register blueprints
-    from app.routes import auth_bp, api_keys_bp, secrets_bp, ssh_bp, admin_bp
+    from app.routes import auth_bp, api_keys_bp, secrets_bp, ssh_bp, admin_bp, import_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_keys_bp)
     app.register_blueprint(secrets_bp)
     app.register_blueprint(ssh_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(import_bp)
 
     # Serve Web Dashboard
     @app.route("/", defaults={"path": ""})

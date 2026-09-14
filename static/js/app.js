@@ -128,6 +128,7 @@ function navigate(page) {
     ssh: 'SSH Certificates',
     apikeys: 'API Keys',
     users: 'User Management',
+    import: 'Import KeePass (.kdbx)',
     audit: 'Audit Logs',
   };
   document.getElementById('page-title').textContent = titles[page] || page;
@@ -139,6 +140,7 @@ function navigate(page) {
     secrets: loadSecrets,
     apikeys: loadAPIKeys,
     users: loadUsers,
+    import: loadImportJobs,
     audit: () => { auditPage = 1; loadAuditLogs(); },
   };
   if (loaders[page]) loaders[page]();
@@ -769,6 +771,286 @@ function debounce(fn, delay) {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), delay);
   };
+}
+
+// ============================================================
+// KDBX IMPORT
+// ============================================================
+
+let _kdbxPreviewData = null;   // hold parsed preview for Import All
+let _kdbxPollTimer  = null;    // interval handle for job polling
+
+function onKdbxFileSelected(input) {
+  const hint = document.getElementById('kdbx-filename');
+  if (input.files && input.files[0]) {
+    hint.textContent = input.files[0].name + ' (' + (input.files[0].size / 1024).toFixed(1) + ' KB)';
+    hint.classList.add('has-file');
+  } else {
+    hint.textContent = 'No file selected';
+    hint.classList.remove('has-file');
+  }
+  // Reset import button
+  document.getElementById('kdbx-import-btn').disabled = true;
+  _kdbxPreviewData = null;
+}
+
+// ─── Drag & Drop ───
+(function setupDropzone() {
+  const dz = document.getElementById('kdbx-dropzone');
+  if (!dz) return;
+  ['dragenter','dragover'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('dragging'); })
+  );
+  ['dragleave','drop'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('dragging'); })
+  );
+  dz.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const fi = document.getElementById('kdbx-file');
+    // Assign file via DataTransfer
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fi.files = dt.files;
+    onKdbxFileSelected(fi);
+  });
+})();
+
+// ─── Build FormData from UI ───
+function _buildKdbxFormData() {
+  const fd = new FormData();
+  const fileInput = document.getElementById('kdbx-file');
+  if (!fileInput.files || !fileInput.files[0]) {
+    showToast('Please select a .kdbx file first', 'error');
+    return null;
+  }
+  fd.append('file', fileInput.files[0]);
+
+  const pw = document.getElementById('kdbx-password').value;
+  if (pw) fd.append('password', pw);
+
+  const kfInput = document.getElementById('kdbx-keyfile');
+  if (kfInput.files && kfInput.files[0]) fd.append('keyfile', kfInput.files[0]);
+
+  const group = document.getElementById('kdbx-group').value.trim();
+  if (group) fd.append('group_filter', group);
+
+  const tag = document.getElementById('kdbx-tag').value.trim();
+  if (tag) fd.append('tag_filter', tag);
+
+  return fd;
+}
+
+// ─── Preview ───
+async function previewKdbx() {
+  const fd = _buildKdbxFormData();
+  if (!fd) return;
+
+  const btn = document.getElementById('kdbx-preview-btn');
+  btn.textContent = '⟳ Parsing...';
+  btn.disabled = true;
+
+  const headerEl = document.getElementById('kdbx-preview-header');
+  const bodyEl   = document.getElementById('kdbx-preview-body');
+  bodyEl.innerHTML = '<p style="color:var(--text-muted)">Parsing file...</p>';
+
+  try {
+    // Must not use JSON content-type for multipart
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+    const res = await fetch(`${API_BASE}/import/kdbx/preview`, {
+      method: 'POST', headers, body: fd,
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      bodyEl.innerHTML = `<p style="color:var(--accent-red)">${data.error}</p>`;
+      return;
+    }
+
+    _kdbxPreviewData = data;
+
+    // Stats row
+    const statsHtml = `
+      <div class="preview-stats">
+        <div class="preview-stat">
+          <span class="preview-stat-value">${data.total_entries}</span>
+          <span class="preview-stat-label">Entries</span>
+        </div>
+        <div class="preview-stat">
+          <span class="preview-stat-value" style="color:var(--accent-amber)">${data.conflict_count}</span>
+          <span class="preview-stat-label">Conflicts</span>
+        </div>
+        <div class="preview-stat">
+          <span class="preview-stat-value" style="color:var(--accent-red)">${data.total_skipped}</span>
+          <span class="preview-stat-label">Skipped</span>
+        </div>
+      </div>
+    `;
+
+    if (data.conflict_count) {
+      statsHtml_notice = `<div class="alert alert-warning" style="font-size:12px;margin-bottom:8px">⚠️ ${data.conflict_count} slug conflict(s) — highlighted in amber. Enable "Overwrite" to replace them.</div>`;
+    } else {
+      statsHtml_notice = '';
+    }
+
+    // Preview table (max 50 rows shown)
+    const rows = data.preview.slice(0, 50).map(e => `
+      <tr class="${e.conflict ? 'conflict' : ''}">
+        <td title="${e.slug}">${e.slug}</td>
+        <td title="${e.name}">${e.name}</td>
+        <td title="${e.host || ''}">${e.host || '<span style="color:var(--text-muted)">—</span>'}</td>
+        <td title="${e.username || ''}">${e.username || '—'}</td>
+        <td>${e.has_password ? '🔐' : '—'}</td>
+        <td>${(e.tags || []).map(t => `<span class="badge badge-gray">${t}</span>`).join(' ')}</td>
+        <td>${e.conflict ? '<span class="badge badge-amber">⚠ exists</span>' : '<span class="badge badge-green">new</span>'}</td>
+      </tr>
+    `).join('');
+
+    const moreNote = data.preview.length > 50 ? `<p style="color:var(--text-muted);font-size:12px;margin-top:8px">Showing first 50 of ${data.preview.length} entries.</p>` : '';
+
+    bodyEl.innerHTML = statsHtml + (statsHtml_notice || '') + `
+      <div style="overflow-x:auto;max-height:320px;overflow-y:auto">
+        <table class="preview-table">
+          <thead><tr><th>Slug</th><th>Name</th><th>Host</th><th>User</th><th>Pw</th><th>Tags</th><th>Status</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px">No entries found</td></tr>'}</tbody>
+        </table>
+      </div>${moreNote}
+    `;
+    headerEl.textContent = `Preview — ${data.total_entries} entries`;
+
+    // Enable import button
+    document.getElementById('kdbx-import-btn').disabled = data.total_entries === 0;
+    showToast(`Preview: ${data.total_entries} entries found`, 'success');
+
+  } catch (err) {
+    bodyEl.innerHTML = `<p style="color:var(--accent-red)">Error: ${err.message}</p>`;
+    showToast('Preview failed', 'error');
+  } finally {
+    btn.textContent = '🔍 Preview';
+    btn.disabled = false;
+  }
+}
+
+// ─── Import ───
+async function importKdbx() {
+  const fd = _buildKdbxFormData();
+  if (!fd) return;
+
+  const overwrite = document.getElementById('kdbx-overwrite').checked;
+  if (overwrite) fd.append('overwrite', 'true');
+
+  const importBtn = document.getElementById('kdbx-import-btn');
+  importBtn.disabled = true;
+  importBtn.textContent = '⟳ Starting...';
+
+  // Show job card
+  const jobCard = document.getElementById('kdbx-job-card');
+  jobCard.style.display = '';
+  document.getElementById('kdbx-progress-bar').style.width = '0%';
+  document.getElementById('kdbx-progress-text').textContent = 'Uploading file...';
+  document.getElementById('kdbx-job-errors').innerHTML = '';
+
+  try {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+    const res = await fetch(`${API_BASE}/import/kdbx`, {
+      method: 'POST', headers, body: fd,
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      document.getElementById('kdbx-progress-text').textContent = '❌ ' + (data.error || 'Import failed');
+      showToast(data.error || 'Import failed', 'error');
+      importBtn.disabled = false;
+      importBtn.textContent = '📥 Import All';
+      return;
+    }
+
+    // No entries?
+    if (!data.job_id) {
+      document.getElementById('kdbx-progress-text').textContent = data.message || 'Nothing to import.';
+      importBtn.disabled = false;
+      importBtn.textContent = '📥 Import All';
+      return;
+    }
+
+    showToast(`Import job ${data.job_id} started`, 'info');
+    _pollJob(data.job_id);
+
+  } catch (err) {
+    document.getElementById('kdbx-progress-text').textContent = '❌ ' + err.message;
+    showToast('Import error', 'error');
+    importBtn.disabled = false;
+    importBtn.textContent = '📥 Import All';
+  }
+}
+
+// ─── Poll job status ───
+function _pollJob(jobId) {
+  if (_kdbxPollTimer) clearInterval(_kdbxPollTimer);
+
+  _kdbxPollTimer = setInterval(async () => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+    try {
+      const res = await fetch(`${API_BASE}/import/kdbx/jobs/${jobId}`, { headers });
+      if (!res.ok) return;
+      const job = await res.json();
+
+      // Update progress bar
+      document.getElementById('kdbx-progress-bar').style.width = job.progress + '%';
+      document.getElementById('kdbx-progress-text').textContent =
+        `${job.status === 'done' ? '✅ Done' : '⚙️ Running'} — ${job.imported}/${job.total} imported, ${job.skipped} skipped`;
+
+      // Errors
+      if (job.errors && job.errors.length) {
+        document.getElementById('kdbx-job-errors').innerHTML =
+          `<details><summary style="font-size:12px;color:var(--accent-red);cursor:pointer">${job.errors.length} error(s)</summary>` +
+          job.errors.map(e => `<div style="font-size:11px;color:var(--accent-red);padding:2px 0">${e.slug}: ${e.error}</div>`).join('') +
+          `</details>`;
+      }
+
+      if (job.status === 'done') {
+        clearInterval(_kdbxPollTimer);
+        showToast(`✅ Import done! ${job.imported} entries written to Vault.`, 'success');
+        document.getElementById('kdbx-import-btn').textContent = '📥 Import All';
+        loadImportJobs();
+      }
+    } catch (_) {}
+  }, 1500);
+}
+
+// ─── Job History ───
+async function loadImportJobs() {
+  const tbody = document.getElementById('import-jobs-body');
+  const headers = {};
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  const res = await fetch(`${API_BASE}/import/kdbx/jobs`, { headers });
+  if (!res.ok) return;
+  const data = await res.json();
+
+  if (!data.jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No imports yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.jobs.map(j => `
+    <tr>
+      <td class="mono" style="font-size:12px">${j.job_id}</td>
+      <td>${j.status === 'done' ? '<span class="badge badge-green">done</span>' :
+           j.status === 'running' ? '<span class="badge badge-blue">running</span>' :
+           '<span class="badge badge-gray">queued</span>'}</td>
+      <td>${j.total}</td>
+      <td>${j.imported ?? j.done}</td>
+      <td>${j.skipped ?? 0}</td>
+      <td>${(j.errors?.length) ?? 0}</td>
+      <td style="font-size:12px">${formatTime(j.created_at)}</td>
+    </tr>
+  `).join('');
 }
 
 // ============================================================

@@ -70,6 +70,9 @@
         <a href="#" class="nav-item" data-page="ssh" onclick="navigate('ssh')">
           <span class="nav-icon">💻</span><span class="nav-label">SSH Certificates</span>
         </a>
+        <a href="#" class="nav-item" data-page="import" onclick="navigate('import')">
+          <span class="nav-icon">📥</span><span class="nav-label">Import KeePass</span>
+        </a>
 
         <div class="nav-section-label">Access</div>
         <a href="#" class="nav-item" data-page="apikeys" onclick="navigate('apikeys')">
@@ -279,6 +282,99 @@
           <table class="data-table" id="users-table">
             <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
             <tbody id="users-body"><tr><td colspan="7" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Import Page -->
+      <div id="page-import" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">Import from KeePass (.kdbx)</h2>
+        </div>
+        <div class="two-col" style="align-items:start">
+          <!-- Upload Card -->
+          <div class="card">
+            <div class="card-header">📥 Upload KeePass Database</div>
+            <div class="card-body">
+              <div class="dropzone" id="kdbx-dropzone" onclick="document.getElementById('kdbx-file').click()">
+                <div class="dropzone-icon">🗝️</div>
+                <div class="dropzone-text">Click or drag &amp; drop <strong>.kdbx</strong> file here</div>
+                <div class="dropzone-hint" id="kdbx-filename">No file selected</div>
+                <input id="kdbx-file" type="file" accept=".kdbx" class="hidden" onchange="onKdbxFileSelected(this)" />
+              </div>
+
+              <div class="form-group" style="margin-top:16px">
+                <label>Master Password</label>
+                <div class="input-wrapper">
+                  <span class="input-icon">🔒</span>
+                  <input id="kdbx-password" type="password" class="form-control" placeholder="Leave empty if none" style="padding-left:42px" />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Key File (optional)</label>
+                <input id="kdbx-keyfile" type="file" class="form-control" style="padding:8px" />
+              </div>
+
+              <details class="filter-details">
+                <summary>🎯 Filters (optional)</summary>
+                <div style="padding-top:12px">
+                  <div class="form-group">
+                    <label>Group filter <span class="hint">(partial match on group path)</span></label>
+                    <input id="kdbx-group" type="text" class="form-control" placeholder="e.g. Servers" />
+                  </div>
+                  <div class="form-group">
+                    <label>Tag filter <span class="hint">(KeePass entry tag)</span></label>
+                    <input id="kdbx-tag" type="text" class="form-control" placeholder="e.g. linux" />
+                  </div>
+                </div>
+              </details>
+
+              <div class="form-group checkbox-group" style="margin-top:4px">
+                <label>
+                  <input id="kdbx-overwrite" type="checkbox" />
+                  Overwrite existing secrets with same name
+                </label>
+              </div>
+
+              <div style="display:flex;gap:10px;margin-top:8px">
+                <button class="btn btn-ghost btn-full" id="kdbx-preview-btn" onclick="previewKdbx()">🔍 Preview</button>
+                <button class="btn btn-primary btn-full" id="kdbx-import-btn" onclick="importKdbx()" disabled>📥 Import All</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preview / Progress Card -->
+          <div>
+            <div class="card" id="kdbx-preview-card" style="margin-bottom:16px">
+              <div class="card-header" id="kdbx-preview-header">Preview</div>
+              <div class="card-body" id="kdbx-preview-body">
+                <p style="color:var(--text-muted);font-size:13px">Upload and click Preview to see entries.</p>
+              </div>
+            </div>
+
+            <div class="card" id="kdbx-job-card" style="display:none">
+              <div class="card-header">⚙️ Import Progress</div>
+              <div class="card-body">
+                <div class="progress-bar-wrapper">
+                  <div class="progress-bar" id="kdbx-progress-bar" style="width:0%"></div>
+                </div>
+                <div id="kdbx-progress-text" style="font-size:13px;color:var(--text-secondary);margin-top:10px">Starting...</div>
+                <div id="kdbx-job-errors" style="margin-top:12px"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Job History -->
+        <div class="section-header" style="margin-top:8px">
+          <h2 class="section-title">Import History</h2>
+          <button class="btn btn-ghost btn-sm" onclick="loadImportJobs()">🔄 Refresh</button>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead><tr><th>Job ID</th><th>Status</th><th>Total</th><th>Imported</th><th>Skipped</th><th>Errors</th><th>Started</th></tr></thead>
+            <tbody id="import-jobs-body"><tr><td colspan="7" class="loading-cell">No imports yet</td></tr></tbody>
           </table>
         </div>
       </div>

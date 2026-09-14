@@ -62,10 +62,10 @@ Hoặc dùng Docker:
 
 ```bash
 # Chỉ chạy PostgreSQL và  Vault (nếu chưa có)
-docker-compose up -d postgres  vault
+docker compose up -d postgres  vault
 
 # Chạy toàn bộ
-docker-compose up -d
+docker compose up -d
 ```
 
 ## API Endpoints

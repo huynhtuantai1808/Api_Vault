@@ -116,9 +116,14 @@ def create_app(config=None):
 
 
 def _seed_admin(app):
-    """Create default admin user if no users exist."""
+    """Create default admin user if no users exist. Silently skips if tables aren't created yet."""
     from app.models.user import User
+    from sqlalchemy import inspect
     try:
+        # Check if the users table actually exists before querying
+        inspector = inspect(db.engine)
+        if "users" not in inspector.get_table_names():
+            return  # Tables not created yet — migrations haven't run
         if User.query.count() == 0:
             admin = User(
                 username=app.config["ADMIN_USERNAME"],
@@ -131,5 +136,5 @@ def _seed_admin(app):
             app.logger.info(
                 f"✅ Admin user '{app.config['ADMIN_USERNAME']}' created."
             )
-    except Exception as e:
-        app.logger.warning(f"Could not seed admin: {e}")
+    except Exception:
+        pass  # Silently skip — tables may not exist yet

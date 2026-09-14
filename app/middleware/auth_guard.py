@@ -76,7 +76,9 @@ def require_auth(*required_scopes):
                 g.current_user = user
                 g.current_api_key = None
                 return fn(*args, **kwargs)
-            except Exception:
+            except Exception as e:
+                from flask import current_app
+                current_app.logger.error(f"JWT verification failed: {e}")
                 return jsonify({"error": "Authentication required"}), 401
 
         return wrapper

@@ -17,6 +17,7 @@ fi
 
 # Install dependencies
 echo "[2/5] Installing Python dependencies..."
+source venv/bin/activate
 pip install -r requirements.txt -q
 
 # Initialize Flask-Migrate

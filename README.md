@@ -62,7 +62,7 @@ Hoặc dùng Docker:
 
 ```bash
 # Chỉ chạy PostgreSQL và  Vault (nếu chưa có)
-docker compose up -d postgres  vault
+docker compose up -d postgres  vault  vault-init
 
 # Chạy toàn bộ
 docker compose up -d

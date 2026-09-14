@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment
+.env
+!.env.example
+
+# Database
+*.db
+*.sqlite3
+
+# SSH keys
+/tmp/vault_keys/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Alembic
+migrations/versions/*.py
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

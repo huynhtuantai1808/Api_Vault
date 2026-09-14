@@ -1,0 +1,127 @@
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: vault_postgres
+    environment:
+      POSTGRES_USER: vault_user
+      POSTGRES_PASSWORD: vault_pass
+      POSTGRES_DB: api_vault
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vault_user -d api_vault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # HashiCorp Vault (dev mode – root token = "root")
+  # UI: http://localhost:8200  |  Token: root
+  # ─────────────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: vault_server
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    command: server -dev
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ─────────────────────────────────────────────
+  # Vault Init – one-shot provisioner
+  # Enables KV v2 + SSH CA, creates SSH role, then exits (code 0)
+  # ─────────────────────────────────────────────
+  vault-init:
+    image: hashicorp/vault:1.17
+    container_name: vault_init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "root"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "==> Enabling KV v2 secrets engine..."
+        vault secrets enable -version=2 -path=secret kv 2>/dev/null || echo "KV already enabled"
+
+        echo "==> Enabling SSH secrets engine..."
+        vault secrets enable -path=ssh ssh 2>/dev/null || echo "SSH already enabled"
+
+        echo "==> Generating SSH CA..."
+        vault write ssh/config/ca generate_signing_key=true 2>/dev/null || echo "CA already configured"
+
+        SSH_ROLE="${VAULT_SSH_ROLE:-my-role}"
+        echo "==> Creating SSH role: ${SSH_ROLE}..."
+        vault write "ssh/roles/${SSH_ROLE}" \
+          key_type=ca \
+          allow_user_certificates=true \
+          allowed_users="*" \
+          default_extensions='{"permit-pty": ""}' \
+          ttl=1h \
+          max_ttl=24h
+
+        echo "==> Vault provisioning complete!"
+
+        echo ""
+        echo "┌─────────────────────────────────────────────┐"
+        echo "│  Vault ready                                 │"
+        echo "│  Address : http://vault:8200                 │"
+        echo "│  Token   : root                              │"
+        echo "│  KV path : secret/                           │"
+        echo "│  SSH role: ${VAULT_SSH_ROLE:-my-role}        │"
+        echo "└─────────────────────────────────────────────┘"
+    restart: "no"
+
+  # ─────────────────────────────────────────────
+  # API Vault Application
+  # ─────────────────────────────────────────────
+  api_vault:
+    build: .
+    container_name: api_vault_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-super-secret-change-me-in-production}
+      DATABASE_URL: postgresql://vault_user:vault_pass@postgres:5432/api_vault
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-secret-change-me}
+      # Vault – point to the internal service, override via .env if using external
+      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VAULT_SSH_ROLE: ${VAULT_SSH_ROLE:-my-role}
+      VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
+      VAULT_SSH_MOUNT: ${VAULT_SSH_MOUNT:-ssh}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123456}
+    ports:
+      - "5055:5055"
+    volumes:
+      - ssh_keys:/tmp/vault_keys
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ssh_keys:

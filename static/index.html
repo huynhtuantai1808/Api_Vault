@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Vault — Secure Credential Manager</title>
+  <meta name="description" content="API Vault: Securely store server credentials and manage API keys with HashiCorp Vault integration." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-icon">🔐</div>
+        <h1 class="login-title">API Vault</h1>
+        <p class="login-subtitle">Secure Credential Management System</p>
+      </div>
+      <form id="login-form" class="login-form" autocomplete="off">
+        <div class="form-group">
+          <label for="login-username">Username</label>
+          <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input id="login-username" type="text" placeholder="admin" required autocomplete="username" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔑</span>
+            <input id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password" />
+            <button type="button" class="toggle-pw" onclick="togglePassword()">👁</button>
+          </div>
+        </div>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-loader hidden">⟳</span>
+        </button>
+      </form>
+      <p class="login-footer">Protected by HashiCorp Vault</p>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="sidebar-logo-icon">🔐</span>
+          <span class="sidebar-logo-text">API Vault</span>
+        </div>
+        <button class="sidebar-toggle" onclick="toggleSidebar()">◀</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Overview</div>
+        <a href="#" class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+          <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
+        </a>
+
+        <div class="nav-section-label">Credentials</div>
+        <a href="#" class="nav-item" data-page="secrets" onclick="navigate('secrets')">
+          <span class="nav-icon">🗝️</span><span class="nav-label">Server Secrets</span>
+        </a>
+        <a href="#" class="nav-item" data-page="ssh" onclick="navigate('ssh')">
+          <span class="nav-icon">💻</span><span class="nav-label">SSH Certificates</span>
+        </a>
+
+        <div class="nav-section-label">Access</div>
+        <a href="#" class="nav-item" data-page="apikeys" onclick="navigate('apikeys')">
+          <span class="nav-icon">🔑</span><span class="nav-label">API Keys</span>
+        </a>
+
+        <div class="nav-section-label" id="admin-label">Admin</div>
+        <a href="#" class="nav-item admin-only" data-page="users" onclick="navigate('users')">
+          <span class="nav-icon">👥</span><span class="nav-label">Users</span>
+        </a>
+        <a href="#" class="nav-item" data-page="audit" onclick="navigate('audit')">
+          <span class="nav-icon">📋</span><span class="nav-label">Audit Logs</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-badge">
+          <div class="user-avatar" id="user-avatar">A</div>
+          <div class="user-info">
+            <span class="user-name" id="sidebar-username">admin</span>
+            <span class="user-role" id="sidebar-role">Administrator</span>
+          </div>
+        </div>
+        <button class="btn-icon logout-btn" onclick="logout()" title="Logout">🚪</button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content">
+      <header class="top-bar">
+        <div class="page-title" id="page-title">Dashboard</div>
+        <div class="top-bar-actions">
+          <a href="/apidocs" target="_blank" class="btn btn-ghost btn-sm">📖 API Docs</a>
+          <div class="vault-status" id="vault-status">
+            <span class="status-dot"></span> Vault
+          </div>
+        </div>
+      </header>
+
+      <!-- Pages -->
+      <div id="page-dashboard" class="page active">
+        <!-- Stats Grid -->
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🗝️</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-secrets">—</div>
+              <div class="stat-label">Server Secrets</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🔑</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-keys">—</div>
+              <div class="stat-label">API Keys</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-users">—</div>
+              <div class="stat-label">Users</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📋</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-logs">—</div>
+              <div class="stat-label">Audit Events</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section-header">
+          <h2 class="section-title">Quick Actions</h2>
+        </div>
+        <div class="quick-actions">
+          <button class="quick-action-card" onclick="navigate('secrets'); setTimeout(() => openCreateSecretModal(), 300)">
+            <div class="qa-icon">➕</div>
+            <div class="qa-text">Add Server</div>
+          </button>
+          <button class="quick-action-card" onclick="navigate('apikeys'); setTimeout(() => openCreateKeyModal(), 300)">
+            <div class="qa-icon">🔑</div>
+            <div class="qa-text">Generate API Key</div>
+          </button>
+          <button class="quick-action-card" onclick="navigate('ssh')">
+            <div class="qa-icon">💻</div>
+            <div class="qa-text">Sign SSH Key</div>
+          </button>
+          <button class="quick-action-card" onclick="navigate('audit')">
+            <div class="qa-icon">📋</div>
+            <div class="qa-text">View Audit Log</div>
+          </button>
+        </div>
+
+        <!-- Recent Audit Logs -->
+        <div class="section-header">
+          <h2 class="section-title">Recent Activity</h2>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="recent-logs-table">
+            <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Status</th><th>IP</th></tr></thead>
+            <tbody id="recent-logs-body"><tr><td colspan="5" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Secrets Page -->
+      <div id="page-secrets" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">Server Credentials</h2>
+          <div class="section-actions">
+            <input type="text" id="secrets-search" class="search-input" placeholder="🔍 Search secrets..." oninput="filterSecrets()" />
+            <button class="btn btn-primary btn-sm" onclick="openCreateSecretModal()">+ Add Secret</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="secrets-table">
+            <thead><tr><th>Name / ID</th><th>Host</th><th>Port</th><th>Username</th><th>Auth Type</th><th>Tags</th><th>Actions</th></tr></thead>
+            <tbody id="secrets-body"><tr><td colspan="7" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SSH Page -->
+      <div id="page-ssh" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">SSH Certificate Signing</h2>
+        </div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header">🔑 Generate & Sign New Key</div>
+            <div class="card-body">
+              <div class="form-group">
+                <label>Target Server</label>
+                <input id="ssh-server" type="text" placeholder="192.168.1.10" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label>SSH User</label>
+                <input id="ssh-user" type="text" placeholder="root" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label>TTL (validity)</label>
+                <select id="ssh-ttl" class="form-control">
+                  <option value="30m">30 minutes</option>
+                  <option value="1h" selected>1 hour</option>
+                  <option value="4h">4 hours</option>
+                  <option value="8h">8 hours</option>
+                  <option value="24h">24 hours</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-full" onclick="signSSHKey()">🔏 Sign SSH Key</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">📋 Sign Existing Public Key</div>
+            <div class="card-body">
+              <div class="form-group">
+                <label>Target Server</label>
+                <input id="ssh-existing-server" type="text" placeholder="192.168.1.10" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label>SSH User</label>
+                <input id="ssh-existing-user" type="text" placeholder="root" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label>Public Key Content</label>
+                <textarea id="ssh-existing-pubkey" class="form-control mono" rows="4" placeholder="ssh-rsa AAAA..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>TTL</label>
+                <select id="ssh-existing-ttl" class="form-control">
+                  <option value="30m">30 minutes</option>
+                  <option value="1h" selected>1 hour</option>
+                  <option value="4h">4 hours</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-full" onclick="signExistingKey()">🔏 Sign Key</button>
+            </div>
+          </div>
+        </div>
+        <div id="ssh-result" class="ssh-result hidden"></div>
+      </div>
+
+      <!-- API Keys Page -->
+      <div id="page-apikeys" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">API Keys</h2>
+          <button class="btn btn-primary btn-sm" onclick="openCreateKeyModal()">+ Generate Key</button>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="apikeys-table">
+            <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Status</th><th>Usage</th><th>Expires</th><th>Actions</th></tr></thead>
+            <tbody id="apikeys-body"><tr><td colspan="7" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Users Page -->
+      <div id="page-users" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">User Management</h2>
+          <button class="btn btn-primary btn-sm" onclick="openCreateUserModal()">+ Add User</button>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="users-table">
+            <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+            <tbody id="users-body"><tr><td colspan="7" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Logs Page -->
+      <div id="page-audit" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">Audit Logs</h2>
+          <div class="section-actions">
+            <select id="audit-status-filter" class="form-control-sm" onchange="loadAuditLogs()">
+              <option value="">All Status</option>
+              <option value="success">Success</option>
+              <option value="failure">Failure</option>
+            </select>
+            <input type="text" id="audit-action-filter" class="search-input" placeholder="Filter action..." oninput="debounce(loadAuditLogs, 500)()" />
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="audit-table">
+            <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Resource</th><th>Status</th><th>IP</th></tr></thead>
+            <tbody id="audit-body"><tr><td colspan="6" class="loading-cell">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="audit-pagination"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===================== MODALS ===================== -->
+
+  <!-- Create Secret Modal -->
+  <div id="modal-create-secret" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Server Credential</h3>
+        <button class="modal-close" onclick="closeModal('modal-create-secret')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Name *</label>
+            <input id="cs-name" type="text" class="form-control" placeholder="prod-web-01" />
+          </div>
+          <div class="form-group">
+            <label>Auth Type *</label>
+            <select id="cs-auth-type" class="form-control" onchange="toggleAuthFields()">
+              <option value="password">Password</option>
+              <option value="ssh_key">SSH Key</option>
+              <option value="token">Token</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Host *</label>
+            <input id="cs-host" type="text" class="form-control" placeholder="192.168.1.10" />
+          </div>
+          <div class="form-group">
+            <label>Port</label>
+            <input id="cs-port" type="number" class="form-control" value="22" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Username *</label>
+          <input id="cs-username" type="text" class="form-control" placeholder="root" />
+        </div>
+        <div id="auth-field-password" class="form-group">
+          <label>Password</label>
+          <input id="cs-password" type="password" class="form-control" placeholder="••••••••" />
+        </div>
+        <div id="auth-field-ssh" class="form-group hidden">
+          <label>SSH Private Key</label>
+          <textarea id="cs-ssh-key" class="form-control mono" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----"></textarea>
+        </div>
+        <div id="auth-field-token" class="form-group hidden">
+          <label>Token / API Key</label>
+          <input id="cs-token" type="text" class="form-control" placeholder="token..." />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input id="cs-description" type="text" class="form-control" placeholder="Production web server" />
+        </div>
+        <div class="form-group">
+          <label>Tags (comma-separated)</label>
+          <input id="cs-tags" type="text" class="form-control" placeholder="prod, web, linux" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('modal-create-secret')">Cancel</button>
+        <button class="btn btn-primary" onclick="createSecret()">Save Secret</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create API Key Modal -->
+  <div id="modal-create-key" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Generate API Key</h3>
+        <button class="modal-close" onclick="closeModal('modal-create-key')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Key Name *</label>
+          <input id="ck-name" type="text" class="form-control" placeholder="ci-pipeline-key" />
+        </div>
+        <div class="form-group">
+          <label>Permissions (Scopes)</label>
+          <div class="scopes-grid" id="scopes-grid">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Expires At (optional)</label>
+          <input id="ck-expires" type="datetime-local" class="form-control" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('modal-create-key')">Cancel</button>
+        <button class="btn btn-primary" onclick="createAPIKey()">Generate Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Show API Key Modal -->
+  <div id="modal-show-key" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🎉 API Key Generated</h3>
+        <button class="modal-close" onclick="closeModal('modal-show-key')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning">⚠️ This key will <strong>only be shown once</strong>. Copy it now!</div>
+        <div class="form-group">
+          <label>Your API Key</label>
+          <div class="copy-field">
+            <code id="raw-key-display" class="key-display"></code>
+            <button class="btn btn-ghost btn-sm" onclick="copyKey()">📋 Copy</button>
+          </div>
+        </div>
+        <p class="hint-text">Use it as: <code>X-API-Key: &lt;key&gt;</code> in request headers.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeModal('modal-show-key')">I've saved it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create User Modal -->
+  <div id="modal-create-user" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add User</h3>
+        <button class="modal-close" onclick="closeModal('modal-create-user')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Username *</label>
+          <input id="cu-username" type="text" class="form-control" placeholder="john_doe" />
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="cu-email" type="email" class="form-control" placeholder="john@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Password *</label>
+          <input id="cu-password" type="password" class="form-control" placeholder="Min 8 characters" />
+        </div>
+        <div class="form-group checkbox-group">
+          <label><input id="cu-is-admin" type="checkbox" /> Grant admin privileges</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('modal-create-user')">Cancel</button>
+        <button class="btn btn-primary" onclick="createUser()">Create User</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 """
 app/__init__.py - Flask application factory.
 """
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 from flasgger import Swagger
 from app.config import get_config
 from app.extensions import db, migrate, jwt, limiter, cors, socketio
@@ -126,6 +126,14 @@ def create_app(config=None):
     @app.errorhandler(500)
     def internal_error(e):
         return jsonify({"error": "Internal server error"}), 500
+
+    @app.after_request
+    def log_api_call(response):
+        if request.path.startswith('/api/'):
+            app.logger.info(
+                f"API Request: {request.method} {request.path} - Status: {response.status_code} - IP: {request.remote_addr}"
+            )
+        return response
 
     # Seed admin user on first run
     with app.app_context():

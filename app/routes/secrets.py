@@ -41,7 +41,7 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_\-]", "_", name.strip().lower())
 
 
-def _safe_dict(data: dict, hide_fields=("password", "ssh_private_key", "token")) -> dict:
+def _safe_dict(data: dict, hide_fields=("password", "ssh_private_key", "token", "totp_secret")) -> dict:
     """Return dict with sensitive fields masked."""
     return {
         k: ("***HIDDEN***" if k in hide_fields and v else v)
@@ -140,6 +140,15 @@ def get_secret(slug: str):
 
     result = data if reveal else _safe_dict(data)
     result["_id"] = slug
+    
+    # Compute live TOTP code if secret exists and is revealed
+    if reveal and result.get("totp_secret"):
+        import pyotp
+        try:
+            result["totp_code"] = pyotp.TOTP(result["totp_secret"]).now()
+        except Exception:
+            result["totp_code"] = "INVALID_SECRET"
+            
     return jsonify(result), 200
 
 
@@ -220,6 +229,7 @@ def create_secret():
         "password": data.get("password", ""),
         "ssh_private_key": data.get("ssh_private_key", ""),
         "token": data.get("token", ""),
+        "totp_secret": data.get("totp_secret", "").replace(" ", "").upper(),
         "description": data.get("description", ""),
         "tags": data.get("tags", []),
         "created_by": g.current_user.username if g.current_user else "api_key",
@@ -274,6 +284,9 @@ def update_secret(slug: str):
 
     # Merge update (preserve fields not in request)
     updated = {**existing, **data}
+    if "totp_secret" in data:
+        updated["totp_secret"] = data["totp_secret"].replace(" ", "").upper()
+        
     updated["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     VaultClient.kv_update(f"{VAULT_SECRETS_PATH}/{slug}", updated)

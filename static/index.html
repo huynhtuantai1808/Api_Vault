@@ -453,6 +453,10 @@
           <label>Token / API Key</label>
           <input id="cs-token" type="text" class="form-control" placeholder="token..." />
         </div>
+        <div id="auth-field-totp" class="form-group">
+          <label>TOTP Secret (Base32)</label>
+          <input id="cs-totp" type="text" class="form-control" placeholder="JBSWY3DPEHPK3PXP" />
+        </div>
         <div class="form-group">
           <label>Description</label>
           <input id="cs-description" type="text" class="form-control" placeholder="Production web server" />
@@ -519,6 +523,52 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="closeModal('modal-show-key')">I've saved it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Secret Modal -->
+  <div id="modal-view-secret" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="vs-title">View Secret</h3>
+        <button class="modal-close" onclick="closeModal('modal-view-secret')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="vs-totp-container" class="totp-container hidden">
+          <div class="totp-header">
+            <span>Authenticator Code</span>
+            <button class="btn btn-ghost btn-sm" id="vs-totp-refresh">🔄 Refresh</button>
+          </div>
+          <div class="totp-code-display" id="vs-totp-code">------</div>
+          <div class="totp-account" id="vs-totp-account">user@host</div>
+        </div>
+
+        <div class="form-group">
+          <label>Host : Port</label>
+          <div class="copy-field">
+            <code id="vs-host" class="key-display"></code>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Username</label>
+          <div class="copy-field">
+            <code id="vs-username" class="key-display"></code>
+            <button class="btn btn-ghost btn-sm" onclick="copyText(encodeURIComponent(document.getElementById('vs-username').textContent))">📋 Copy</button>
+          </div>
+        </div>
+        <div class="form-group" id="vs-password-group">
+          <label id="vs-secret-label">Password / Token</label>
+          <div class="copy-field">
+            <code id="vs-secret-val" class="key-display"></code>
+            <button class="btn btn-ghost btn-sm" onclick="copyText(encodeURIComponent(document.getElementById('vs-secret-val').textContent))">📋 Copy</button>
+          </div>
+        </div>
+        
+        <div class="form-group" id="vs-ssh-group" style="display:none">
+          <label>SSH Private Key</label>
+          <textarea id="vs-ssh-val" class="form-control mono" rows="5" readonly></textarea>
+        </div>
       </div>
     </div>
   </div>

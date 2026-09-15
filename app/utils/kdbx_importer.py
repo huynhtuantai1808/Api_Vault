@@ -143,6 +143,14 @@ def parse_kdbx(
         entry_tags = list(entry.tags or [])
         tags = list(dict.fromkeys(group_tags + entry_tags))  # dedupe, preserve order
 
+        # Extract TOTP Secret from custom string fields (KeePassXC/KeePass2 format)
+        totp_secret = ""
+        custom_props = entry.custom_properties or {}
+        for key in ("TimeOtp-Secret-Base32", "TOTP Seed", "TOTP Secret"):
+            if key in custom_props and custom_props[key]:
+                totp_secret = custom_props[key].strip()
+                break
+
         secret = {
             "_slug":        slug,
             "name":         title,
@@ -153,6 +161,7 @@ def parse_kdbx(
             "password":     entry.password or "",
             "ssh_private_key": "",
             "token":        "",
+            "totp_secret":  totp_secret,
             "description":  entry.notes or "",
             "tags":         tags,
             "source":       "kdbx_import",

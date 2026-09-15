@@ -266,11 +266,46 @@ function authTypeBadge(type) {
 }
 
 async function viewSecret(slug) {
-  const res = await apiFetch(`/secrets/${slug}?reveal=false`);
+  const res = await apiFetch(`/secrets/${slug}?reveal=true`);
   if (!res?.ok) return showToast('Failed to load secret', 'error');
   const data = await res.json();
-  const details = JSON.stringify(data, null, 2);
-  alert(`Secret: ${slug}\n\n${details}`);
+
+  document.getElementById('vs-title').textContent = data.name || slug;
+  document.getElementById('vs-host').textContent = `${data.host}:${data.port}`;
+  document.getElementById('vs-username').textContent = data.username;
+  
+  if (data.auth_type === 'password' || data.auth_type === 'token') {
+    document.getElementById('vs-password-group').style.display = 'block';
+    document.getElementById('vs-ssh-group').style.display = 'none';
+    document.getElementById('vs-secret-label').textContent = data.auth_type === 'token' ? 'Token' : 'Password';
+    document.getElementById('vs-secret-val').textContent = data.auth_type === 'token' ? data.token : data.password;
+  } else if (data.auth_type === 'ssh_key') {
+    document.getElementById('vs-password-group').style.display = 'none';
+    document.getElementById('vs-ssh-group').style.display = 'block';
+    document.getElementById('vs-ssh-val').value = data.ssh_private_key;
+  }
+  
+  // Handle TOTP
+  const totpContainer = document.getElementById('vs-totp-container');
+  if (data.totp_code && data.totp_code !== 'INVALID_SECRET') {
+    totpContainer.classList.remove('hidden');
+    document.getElementById('vs-totp-code').textContent = data.totp_code;
+    document.getElementById('vs-totp-account').textContent = `${data.username}@${data.host}`;
+    
+    // Setup refresh button
+    document.getElementById('vs-totp-refresh').onclick = async () => {
+      document.getElementById('vs-totp-code').textContent = '------';
+      const refreshRes = await apiFetch(`/secrets/${slug}?reveal=true`);
+      if (refreshRes?.ok) {
+        const refreshData = await refreshRes.json();
+        document.getElementById('vs-totp-code').textContent = refreshData.totp_code || 'Error';
+      }
+    };
+  } else {
+    totpContainer.classList.add('hidden');
+  }
+
+  openModal('modal-view-secret');
 }
 
 async function deleteSecret(slug) {
@@ -291,6 +326,9 @@ function openCreateSecretModal() {
   document.getElementById('cs-port').value = '22';
   document.getElementById('cs-username').value = '';
   document.getElementById('cs-password').value = '';
+  document.getElementById('cs-ssh-key').value = '';
+  document.getElementById('cs-token').value = '';
+  document.getElementById('cs-totp').value = '';
   document.getElementById('cs-description').value = '';
   document.getElementById('cs-tags').value = '';
   document.getElementById('cs-auth-type').value = 'password';
@@ -319,6 +357,7 @@ async function createSecret() {
     password: document.getElementById('cs-password').value,
     ssh_private_key: document.getElementById('cs-ssh-key').value,
     token: document.getElementById('cs-token').value,
+    totp_secret: document.getElementById('cs-totp').value.trim(),
     description: document.getElementById('cs-description').value.trim(),
     tags,
   };
@@ -352,6 +391,7 @@ async function editSecret(slug) {
   document.getElementById('cs-password').value = data.password !== '***HIDDEN***' ? (data.password || '') : '';
   document.getElementById('cs-ssh-key').value = data.ssh_private_key !== '***HIDDEN***' ? (data.ssh_private_key || '') : '';
   document.getElementById('cs-token').value = data.token !== '***HIDDEN***' ? (data.token || '') : '';
+  document.getElementById('cs-totp').value = data.totp_secret !== '***HIDDEN***' ? (data.totp_secret || '') : '';
   document.getElementById('cs-description').value = data.description || '';
   document.getElementById('cs-tags').value = (data.tags || []).join(', ');
 
@@ -369,6 +409,7 @@ async function editSecret(slug) {
       password: document.getElementById('cs-password').value,
       ssh_private_key: document.getElementById('cs-ssh-key').value,
       token: document.getElementById('cs-token').value,
+      totp_secret: document.getElementById('cs-totp').value.trim(),
       description: document.getElementById('cs-description').value.trim(),
       tags: document.getElementById('cs-tags').value.split(',').map(t => t.trim()).filter(Boolean),
     };

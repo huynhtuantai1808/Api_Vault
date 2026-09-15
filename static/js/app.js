@@ -220,7 +220,7 @@ let allSecrets = [];
 
 async function loadSecrets() {
   const tbody = document.getElementById('secrets-body');
-  tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Loading...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Loading...</td></tr>';
 
   const res = await apiFetch('/secrets');
   if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Failed to load</td></tr>'; return; }
@@ -232,11 +232,12 @@ async function loadSecrets() {
 function renderSecrets(secrets) {
   const tbody = document.getElementById('secrets-body');
   if (!secrets.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No secrets stored yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No secrets stored yet</td></tr>';
     return;
   }
   tbody.innerHTML = secrets.map(s => `
     <tr>
+      <td><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()"></td>
       <td><strong>${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
       <td class="mono">${s.host}</td>
       <td>${s.port}</td>
@@ -252,6 +253,138 @@ function renderSecrets(secrets) {
       </td>
     </tr>
   `).join('');
+  
+  const selectAll = document.getElementById('select-all-secrets');
+  if (selectAll) selectAll.checked = false;
+  updateSelectedCount();
+}
+
+async function exportSecrets() {
+  if (!confirm("Exporting will download a JSON file containing all your server secrets, including raw passwords and keys. Are you sure you want to proceed?")) {
+    return;
+  }
+  
+  const res = await apiFetch('/secrets/export?reveal=true');
+  if (!res?.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || "Failed to export secrets. You may lack 'secrets:write' permission.", "error");
+    return;
+  }
+  
+  const contentDisposition = res.headers.get("Content-Disposition") || "";
+  let filename = "api_vault_export.json";
+  const match = contentDisposition.match(/filename=(.+)/);
+  if (match && match.length > 1) {
+    filename = match[1];
+  }
+  
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+  
+  showToast(`Exported ${data.length} servers successfully.`, "success");
+}
+
+async function importSecrets(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!Array.isArray(data)) {
+        showToast("Invalid JSON format. Expected an array of servers.", "error");
+        return;
+      }
+      
+      const res = await apiFetch('/secrets/import', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Import failed");
+      
+      showToast(`Imported ${resData.imported} servers successfully.`, "success");
+      loadSecrets();
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      // Reset input so the same file can be selected again
+      event.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function toggleSelectAll(checkbox) {
+  const checkboxes = document.querySelectorAll('.secret-checkbox');
+  checkboxes.forEach(cb => cb.checked = checkbox.checked);
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const checked = document.querySelectorAll('.secret-checkbox:checked');
+  const btn = document.getElementById('btn-delete-selected');
+  const count = document.getElementById('selected-count');
+  
+  if (checked.length > 0) {
+    if (btn) btn.classList.remove('hidden');
+    if (count) count.textContent = checked.length;
+  } else {
+    if (btn) btn.classList.add('hidden');
+  }
+  
+  const allCheckboxes = document.querySelectorAll('.secret-checkbox');
+  const selectAll = document.getElementById('select-all-secrets');
+  if (selectAll) {
+    if (allCheckboxes.length > 0 && checked.length === allCheckboxes.length) {
+      selectAll.checked = true;
+    } else {
+      selectAll.checked = false;
+    }
+  }
+}
+
+async function deleteSelectedSecrets() {
+  const checked = document.querySelectorAll('.secret-checkbox:checked');
+  if (!checked.length) return;
+  
+  if (!confirm(`Are you sure you want to delete ${checked.length} selected server(s)? This action cannot be undone.`)) {
+    return;
+  }
+  
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const cb of checked) {
+    const res = await apiFetch(`/secrets/${cb.value}`, { method: 'DELETE' });
+    if (res?.ok) {
+      successCount++;
+    } else {
+      failCount++;
+    }
+  }
+  
+  if (failCount === 0) {
+    showToast(`Successfully deleted ${successCount} server(s)`, 'success');
+  } else {
+    showToast(`Deleted ${successCount} servers. Failed to delete ${failCount} servers.`, 'warning');
+  }
+  
+  const selectAll = document.getElementById('select-all-secrets');
+  if (selectAll) selectAll.checked = false;
+  updateSelectedCount();
+  loadSecrets();
 }
 
 let currentSortCol = '';

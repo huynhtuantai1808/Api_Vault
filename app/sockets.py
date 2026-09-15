@@ -52,6 +52,13 @@ def on_start_terminal(data):
     # 1. Verify token manually
     try:
         decoded = decode_token(token)
+        user_id = decoded.get("sub")
+        from app.models.user import User
+        user = User.query.get(user_id)
+        if not user:
+            emit("terminal_output", "Authentication failed: User not found\r\n")
+            return
+        owner = user.username
     except Exception as e:
         emit("terminal_output", f"Authentication failed: {str(e)}\r\n")
         return
@@ -60,7 +67,7 @@ def on_start_terminal(data):
     
     # 2. Fetch secret from Vault
     try:
-        secret = VaultClient.kv_read(f"servers/{slug}")
+        secret = VaultClient.kv_read(f"servers/{owner}/{slug}")
         if not secret:
             emit("terminal_output", "Secret not found.\r\n")
             return

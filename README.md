@@ -17,46 +17,71 @@
 | 🖥️ **Web Dashboard** | Giao diện quản lý dark mode, hỗ trợ quét QR TOTP, Upload file SSH key, Filter/Sort danh sách thông minh |
 | 📖 **Swagger UI** | API documentation tại `/apidocs` |
 
-## Cài đặt nhanh
+## Kiến trúc Hệ thống (Architecture Diagram)
+
+```mermaid
+flowchart TD
+    User([👤 User / Browser])
+    API_Client([🤖 Automation / CLI])
+    
+    subgraph App [API Vault Service]
+        subFlask[Flask Backend API]
+        subWS[WebSockets (Socket.IO)]
+    end
+    
+    DB[(PostgreSQL)\nUsers, API Keys, Audit]
+    Vault[(HashiCorp Vault)\nSecrets KV, SSH CA]
+    TargetServer[🖥️ Target SSH Server]
+
+    User -->|Web UI / Terminal| subFlask
+    User -->|Interactive SSH| subWS
+    API_Client -->|REST API + X-API-Key| subFlask
+    
+    subFlask -->|Read/Write| DB
+    subFlask -->|CRUD Secrets / Sign SSH| Vault
+    
+    subWS -->|Fetch Credentials| Vault
+    subWS -->|SSH Connect + 2FA| TargetServer
+```
+
+
+## Triển khai trên máy mới (Deployment)
+
+Nếu bạn mang source code này sang chạy ở một máy chủ / máy tính khác, bạn có thể thiết lập nhanh theo các bước sau:
 
 ### 1. Chuẩn bị môi trường
 
 ```bash
-# Clone repo
-cd /home/user/Api_Vault
+# Clone hoặc copy thư mục source code sang máy mới
+cd /path/to/Api_Vault
 
-# Tạo .env
+# Cấp quyền thực thi cho script setup
+chmod +x setup.sh
+
+# Tạo file .env từ template (và cấu hình lại IP/Port nếu cần)
 cp .env.example .env
-# Chỉnh sửa .env với thông tin Vault và DB của bạn
-
-# Cài Python dependencies
-pip install -r requirements.txt
+nano .env 
 ```
 
-### 2. Cấu hình `.env`
+### 2. Chạy tự động bằng `setup.sh`
 
-```env
-VAULT_ADDR=http://your-vault:8200
-VAULT_TOKEN=your-token
-VAULT_SSH_ROLE=your-ssh-role
-DATABASE_URL=postgresql://vault_user:vault_pass@localhost:5432/api_vault
-```
-
-### 3. Khởi tạo Database
+File `setup.sh` đã được cấu hình sẵn để tự động tạo môi trường ảo (venv), cài đặt thư viện `requirements.txt`, và khởi động các thành phần phụ trợ (như Vault).
 
 ```bash
-# Init migrations (lần đầu)
-flask db init
-flask db migrate -m "initial"
-flask db upgrade
+./setup.sh
+```
 
-# Hoặc nếu đã có migrations:
+### 3. Khởi tạo Database (chỉ làm 1 lần ở máy mới nếu chưa có DB)
+
+```bash
+source venv/bin/activate
 flask db upgrade
 ```
 
 ### 4. Chạy ứng dụng
 
 ```bash
+source venv/bin/activate
 python run.py
 ```
 

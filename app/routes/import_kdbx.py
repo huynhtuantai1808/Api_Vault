@@ -58,7 +58,7 @@ def _do_import(app, job_id: str, entries: list[dict], overwrite: bool, username:
 
         for entry in entries:
             slug = entry.pop("_slug")
-            vault_path = f"{VAULT_SECRETS_PATH}/{slug}"
+            vault_path = f"servers/{username}/{slug}"
             try:
                 existing = VaultClient.kv_read(vault_path)
                 if existing and not overwrite:

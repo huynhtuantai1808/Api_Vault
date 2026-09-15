@@ -188,6 +188,10 @@
           <h2 class="section-title">Server Credentials</h2>
           <div class="section-actions">
             <input type="text" id="secrets-search" class="search-input" placeholder="🔍 Search secrets..." oninput="filterSecrets()" />
+            <button id="btn-delete-selected" class="btn btn-danger btn-sm hidden" onclick="deleteSelectedSecrets()">🗑 Delete (<span id="selected-count">0</span>)</button>
+            <input type="file" id="import-json-file" accept=".json" style="display:none;" onchange="importSecrets(event)">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-json-file').click()">⬆️ Import</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportSecrets()">⬇️ Export</button>
             <button class="btn btn-primary btn-sm" onclick="openCreateSecretModal()">+ Add Secret</button>
           </div>
         </div>
@@ -195,6 +199,7 @@
           <table class="data-table" id="secrets-table">
             <thead>
               <tr>
+                <th style="width:30px;"><input type="checkbox" id="select-all-secrets" onchange="toggleSelectAll(this)"></th>
                 <th style="cursor:pointer" onclick="sortSecrets('name')">Name / ID <span id="sort-name" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('host')">Host <span id="sort-host" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('port')">Port <span id="sort-port" style="font-size:10px; opacity:0.5">↕️</span></th>
@@ -204,6 +209,7 @@
                 <th>Actions</th>
               </tr>
               <tr class="filter-row" style="background: rgba(255,255,255,0.02);">
+                <th></th>
                 <th><input type="text" id="filter-name" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th><input type="text" id="filter-host" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th><input type="text" id="filter-port" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
@@ -220,7 +226,7 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="secrets-body"><tr><td colspan="7" class="loading-cell">Loading...</td></tr></tbody>
+            <tbody id="secrets-body"><tr><td colspan="8" class="loading-cell">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>

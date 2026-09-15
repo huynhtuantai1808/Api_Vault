@@ -7,12 +7,14 @@
 | Tính năng | Mô tả |
 |-----------|-------|
 | 🔐 **Authentication** | JWT login + API Key (X-API-Key header) |
-| 🗝️ **Secret Storage** | Lưu trữ thông tin login server (SSH/password/token) vào Vault KV v2 |
+| 🗝️ **Secret Storage** | Lưu trữ thông tin login server (SSH/password/token/key) vào Vault KV v2 |
 | 🔑 **API Key Management** | Generate, revoke, rotate keys với phân quyền scope |
 | 💻 **SSH Certificates** | Ký SSH key qua Vault SSH CA, download bundle |
+| 🌐 **Web Terminal** | Giao diện Console (Tab riêng), kết nối SSH trực tiếp trên trình duyệt, hỗ trợ Auto-fill 2FA/TOTP |
+| 📦 **KeePass Import** | Import hàng loạt Server credentials từ file `.kdbx` bằng Background job |
 | 👥 **User Management** | CRUD users với phân quyền admin |
 | 📋 **Audit Logs** | Ghi lại toàn bộ thao tác nhạy cảm |
-| 🖥️ **Web Dashboard** | Giao diện quản lý dark mode |
+| 🖥️ **Web Dashboard** | Giao diện quản lý dark mode, hỗ trợ quét QR TOTP, Upload file SSH key, Filter/Sort danh sách thông minh |
 | 📖 **Swagger UI** | API documentation tại `/apidocs` |
 
 ## Cài đặt nhanh
@@ -198,13 +200,16 @@ Api_Vault/
 │   │   ├── api_keys.py      # API key management
 │   │   ├── secrets.py       # Secret CRUD
 │   │   ├── ssh.py           # SSH certificate signing
-│   │   └── admin.py         # Admin endpoints
+│   │   ├── admin.py         # Admin endpoints
+│   │   └── import_kdbx.py   # Background worker import .kdbx
 │   ├── middleware/
 │   │   └── auth_guard.py    # JWT + API Key auth middleware
-│   └── utils/
-│       └── vault_client.py  # HashiCorp Vault client
+│   ├── utils/
+│   │   └── vault_client.py  # HashiCorp Vault client
+│   └── sockets.py           # WebSockets (Terminal SSH & Background Jobs)
 ├── static/
 │   ├── index.html           # Web Dashboard
+│   ├── terminal.html        # Web SSH Console (Full tab)
 │   ├── css/style.css
 │   └── js/app.js
 ├── migrations/              # DB migrations

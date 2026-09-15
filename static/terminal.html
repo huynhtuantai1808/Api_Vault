@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SSH Terminal - API Vault</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
+    #terminal-header {
+      background: #111;
+      color: #aaa;
+      padding: 8px 16px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #333;
+      user-select: none;
+    }
+    #terminal-container {
+      width: 100%;
+      height: calc(100% - 35px); /* Minus header height */
+    }
+    #server-name {
+      color: #4ade80;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="terminal-header">
+    <div>SSH Session: <span id="server-name">Loading...</span></div>
+    <div style="cursor:pointer" onclick="window.close()">✕ Close</div>
+  </div>
+  <div id="terminal-container"></div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    // 1. Setup Xterm
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 14,
+      theme: { background: '#000000', foreground: '#f0f0f0' }
+    });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal-container'));
+    fitAddon.fit();
+
+    let termSocket;
+
+    // Resize handling
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+      if (termSocket && termSocket.connected) {
+        termSocket.emit("terminal_resize", { cols: term.cols, rows: term.rows });
+      }
+    });
+
+    // 2. Setup Socket.IO
+    const token = localStorage.getItem('vault_token');
+    if (!token) {
+      term.write('\r\n\x1b[31mError: No authentication token found. Please login on the dashboard first.\x1b[0m\r\n');
+    } else {
+      const urlParams = new URLSearchParams(window.location.search);
+      const slug = urlParams.get('slug');
+      document.getElementById('server-name').textContent = slug || 'Unknown';
+
+      if (!slug) {
+        term.write('\r\n\x1b[31mError: No server slug provided.\x1b[0m\r\n');
+      } else {
+        termSocket = io({
+          auth: { token: token }
+        });
+
+        termSocket.on("connect", () => {
+          term.clear();
+          term.write(`\r\n\x1b[32mConnected to API Vault Gateway.\x1b[0m\r\nStarting SSH session to ${slug}...\r\n`);
+          termSocket.emit("start_terminal", { token: token, slug: slug, cols: term.cols, rows: term.rows });
+        });
+
+        termSocket.on("connect_error", (err) => {
+          term.write(`\r\n\x1b[31mConnection Error: ${err.message}\x1b[0m\r\n`);
+        });
+
+        termSocket.on("terminal_output", (data) => {
+          term.write(data);
+        });
+
+        termSocket.on("disconnect", () => {
+          term.write("\r\n\x1b[31mDisconnected from gateway.\x1b[0m\r\n");
+        });
+
+        term.onData(data => {
+          termSocket.emit("terminal_input", data);
+        });
+      }
+    }
+  </script>
+</body>
+</html>

@@ -40,4 +40,4 @@ echo "  Health    : http://localhost:5055/api/v1/admin/health"
 echo ""
 echo "  Default login: admin / Admin@123456"
 echo ""
-python run.py
+python run.py >> /home/taiht/logs/api.log

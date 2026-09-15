@@ -47,40 +47,41 @@ def _save_upload(file_storage) -> str:
     return path
 
 
-def _do_import(job_id: str, entries: list[dict], overwrite: bool, username: str):
+def _do_import(app, job_id: str, entries: list[dict], overwrite: bool, username: str):
     """Background thread: write parsed entries into Vault KV v2."""
-    job = _JOBS[job_id]
-    job["status"] = "running"
-    imported = 0
-    skipped = 0
-    errors = []
+    with app.app_context():
+        job = _JOBS[job_id]
+        job["status"] = "running"
+        imported = 0
+        skipped = 0
+        errors = []
 
-    for entry in entries:
-        slug = entry.pop("_slug")
-        vault_path = f"{VAULT_SECRETS_PATH}/{slug}"
-        try:
-            existing = VaultClient.kv_read(vault_path)
-            if existing and not overwrite:
-                skipped += 1
-                job["skipped"] = job.get("skipped", 0) + 1
-                continue
+        for entry in entries:
+            slug = entry.pop("_slug")
+            vault_path = f"{VAULT_SECRETS_PATH}/{slug}"
+            try:
+                existing = VaultClient.kv_read(vault_path)
+                if existing and not overwrite:
+                    skipped += 1
+                    job["skipped"] = job.get("skipped", 0) + 1
+                    continue
 
-            now = datetime.now(timezone.utc).isoformat()
-            entry["created_by"] = f"kdbx_import:{username}"
-            entry["created_at"] = now
-            entry["updated_at"] = now
+                now = datetime.now(timezone.utc).isoformat()
+                entry["created_by"] = f"kdbx_import:{username}"
+                entry["created_at"] = now
+                entry["updated_at"] = now
 
-            VaultClient.kv_write(vault_path, entry)
-            imported += 1
-            job["done"] = imported
-        except Exception as e:
-            errors.append({"slug": slug, "error": str(e)})
+                VaultClient.kv_write(vault_path, entry)
+                imported += 1
+                job["done"] = imported
+            except Exception as e:
+                errors.append({"slug": slug, "error": str(e)})
 
-    job["status"] = "done"
-    job["imported"] = imported
-    job["skipped"] = skipped
-    job["errors"] = errors
-    job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["status"] = "done"
+        job["imported"] = imported
+        job["skipped"] = skipped
+        job["errors"] = errors
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -293,9 +294,11 @@ def import_kdbx():
         }
 
         # Run in background thread
+        from flask import current_app
+        app = current_app._get_current_object()
         t = threading.Thread(
             target=_do_import,
-            args=(job_id, entries, overwrite, username),
+            args=(app, job_id, entries, overwrite, username),
             daemon=True,
         )
         t.start()

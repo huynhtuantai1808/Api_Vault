@@ -1,6 +1,11 @@
 """
 run.py - Application entry point.
 """
+from gevent import monkey
+monkey.patch_all()
+import psycogreen.gevent
+psycogreen.gevent.patch_psycopg()
+
 import os
 from app import create_app
 

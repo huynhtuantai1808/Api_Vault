@@ -62,6 +62,21 @@ def create_app(config=None):
     cfg = config or get_config()
     app.config.from_object(cfg)
 
+    # Configure logging
+    import logging
+    from logging.handlers import RotatingFileHandler
+    import os
+    if not os.path.exists('logs'):
+        os.mkdir('logs')
+    file_handler = RotatingFileHandler('logs/app.log', maxBytes=10240000, backupCount=10)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('API Vault startup')
+
     # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)

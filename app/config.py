@@ -20,9 +20,9 @@ class Config:
         "postgresql://vault_user:vault_pass@localhost:5432/api_vault"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    from sqlalchemy.pool import NullPool
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True,
-        "pool_recycle": 300,
+        "poolclass": NullPool,
     }
 
     # JWT

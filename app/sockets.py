@@ -3,7 +3,6 @@ app/sockets.py - Web SSH Terminal logic
 """
 import io
 import time
-import gevent
 import paramiko
 from flask import request
 from flask_socketio import emit
@@ -16,10 +15,7 @@ from flask import current_app
 active_channels = {}
 active_ssh_clients = {}
 
-def get_vault_client():
-    vault_addr = current_app.config.get("VAULT_ADDR")
-    vault_token = current_app.config.get("VAULT_TOKEN")
-    return VaultClient(vault_addr, vault_token)
+
 
 def proxy_ssh_output(sid, chan):
     """Background task to read from SSH channel and send to WebSocket."""
@@ -30,7 +26,7 @@ def proxy_ssh_output(sid, chan):
                 if data:
                     socketio.emit("terminal_output", data.decode("utf-8", "replace"), to=sid)
             else:
-                gevent.sleep(0.01)
+                socketio.sleep(0.01)
                 
         # Send remaining data before exit
         if chan.recv_ready():
@@ -64,13 +60,10 @@ def on_start_terminal(data):
     
     # 2. Fetch secret from Vault
     try:
-        vault = get_vault_client()
-        raw_secret = vault.get_secret("servers", slug)
-        if not raw_secret:
+        secret = VaultClient.kv_read(f"servers/{slug}")
+        if not secret:
             emit("terminal_output", "Secret not found.\r\n")
             return
-            
-        secret = raw_secret.get("data", {})
     except Exception as e:
         emit("terminal_output", f"Vault error: {str(e)}\r\n")
         return
@@ -87,7 +80,46 @@ def on_start_terminal(data):
     emit("terminal_output", f"Connecting to {username}@{host}:{port}...\r\n")
     
     # 3. Establish SSH Connection
-    ssh = paramiko.SSHClient()
+    class TOTPSSHClient(paramiko.SSHClient):
+        def _auth(self, username, password, pkey, *args, **kwargs):
+            saved_exception = None
+            try:
+                if pkey is not None:
+                    self._transport.auth_publickey(username, pkey)
+                    return
+                if password is not None:
+                    try:
+                        self._transport.auth_password(username, password)
+                        return
+                    except paramiko.AuthenticationException as e:
+                        saved_exception = e
+                        # Fallback to interactive
+                        def handler(title, instructions, prompt_list):
+                            answers = []
+                            for pr, show_input in prompt_list:
+                                pr_lower = pr.lower()
+                                if 'password' in pr_lower:
+                                    answers.append(password)
+                                elif 'verification' in pr_lower or 'code' in pr_lower or 'otp' in pr_lower or 'token' in pr_lower:
+                                    totp_sec = secret.get("totp_secret")
+                                    if totp_sec:
+                                        import pyotp
+                                        answers.append(pyotp.TOTP(totp_sec).now())
+                                    else:
+                                        answers.append("")
+                                else:
+                                    answers.append(password)
+                            return answers
+                        self._transport.auth_interactive(username, handler)
+                        return
+            except paramiko.AuthenticationException as e:
+                saved_exception = e
+            
+            if saved_exception is not None:
+                raise saved_exception
+            raise paramiko.AuthenticationException("No authentication methods succeeded")
+
+    ssh = TOTPSSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
     try:
@@ -97,7 +129,6 @@ def on_start_terminal(data):
                 emit("terminal_output", "Missing SSH private key.\r\n")
                 return
             key_file = io.StringIO(priv_key)
-            # Try RSA first, fallback to Ed25519/ECDSA could be added if needed
             try:
                 pkey = paramiko.RSAKey.from_private_key(key_file)
             except:
@@ -107,10 +138,10 @@ def on_start_terminal(data):
                 except:
                     key_file.seek(0)
                     pkey = paramiko.ECDSAKey.from_private_key(key_file)
-            ssh.connect(hostname=host, port=port, username=username, pkey=pkey, timeout=10)
+            ssh.connect(hostname=host, port=port, username=username, pkey=pkey, timeout=10, allow_agent=False, look_for_keys=False)
         else:
             password = secret.get("password")
-            ssh.connect(hostname=host, port=port, username=username, password=password, timeout=10)
+            ssh.connect(hostname=host, port=port, username=username, password=password, timeout=10, allow_agent=False, look_for_keys=False)
             
         chan = ssh.invoke_shell(term="xterm-256color")
         chan.setblocking(0)

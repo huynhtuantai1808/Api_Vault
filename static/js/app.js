@@ -254,11 +254,72 @@ function renderSecrets(secrets) {
   `).join('');
 }
 
+let currentSortCol = '';
+let currentSortAsc = true;
+
+function sortSecrets(col) {
+  if (currentSortCol === col) {
+    currentSortAsc = !currentSortAsc;
+  } else {
+    currentSortCol = col;
+    currentSortAsc = true;
+  }
+  
+  // Update icons
+  ['name', 'host', 'port', 'username', 'auth_type'].forEach(c => {
+    const el = document.getElementById(`sort-${c}`);
+    if (el) {
+      if (c === col) {
+        el.textContent = currentSortAsc ? '▲' : '▼';
+        el.style.opacity = '1';
+        el.style.color = 'var(--accent-green)';
+      } else {
+        el.textContent = '↕️';
+        el.style.opacity = '0.5';
+        el.style.color = '';
+      }
+    }
+  });
+  
+  allSecrets.sort((a, b) => {
+    let valA = a[col] || '';
+    let valB = b[col] || '';
+    if (col === 'name') {
+      valA = a.name || a._id;
+      valB = b.name || b._id;
+    }
+    
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+    
+    if (valA < valB) return currentSortAsc ? -1 : 1;
+    if (valA > valB) return currentSortAsc ? 1 : -1;
+    return 0;
+  });
+  
+  filterSecrets();
+}
+
 function filterSecrets() {
   const q = document.getElementById('secrets-search').value.toLowerCase();
-  renderSecrets(allSecrets.filter(s =>
-    (s._id + s.host + s.username + (s.tags || []).join(' ')).toLowerCase().includes(q)
-  ));
+  const fName = document.getElementById('filter-name').value.toLowerCase();
+  const fHost = document.getElementById('filter-host').value.toLowerCase();
+  const fPort = document.getElementById('filter-port').value.toLowerCase();
+  const fUser = document.getElementById('filter-user').value.toLowerCase();
+  const fAuth = document.getElementById('filter-auth').value.toLowerCase();
+  const fTags = document.getElementById('filter-tags').value.toLowerCase();
+
+  renderSecrets(allSecrets.filter(s => {
+    const matchGlobal = (s._id + (s.name||'') + s.host + s.username + (s.tags || []).join(' ')).toLowerCase().includes(q);
+    const matchName = (s._id + (s.name||'')).toLowerCase().includes(fName);
+    const matchHost = (s.host||'').toLowerCase().includes(fHost);
+    const matchPort = String(s.port||'').toLowerCase().includes(fPort);
+    const matchUser = (s.username||'').toLowerCase().includes(fUser);
+    const matchAuth = fAuth === '' || (s.auth_type||'').toLowerCase() === fAuth;
+    const matchTags = (s.tags || []).join(' ').toLowerCase().includes(fTags);
+    
+    return matchGlobal && matchName && matchHost && matchPort && matchUser && matchAuth && matchTags;
+  }));
 }
 
 function authTypeBadge(type) {
@@ -448,6 +509,64 @@ async function editSecret(slug) {
   };
 }
 
+function handleQRUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.getElementById('qr-canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+      
+      if (code) {
+        const data = code.data;
+        if (data.startsWith("otpauth://")) {
+          try {
+            const url = new URL(data);
+            const secret = url.searchParams.get("secret");
+            if (secret) {
+              document.getElementById('cs-totp').value = secret;
+              showToast("QR Code scanned successfully!", "success");
+            } else {
+              showToast("Valid Authenticator URI found, but no 'secret' parameter.", "error");
+            }
+          } catch (err) {
+            showToast("Failed to parse Authenticator URI.", "error");
+          }
+        } else {
+          showToast("QR code doesn't seem to be a valid Authenticator URI.", "error");
+        }
+      } else {
+        showToast("No QR code found in the image. Please try another.", "error");
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = ''; // Reset input so same file can be uploaded again if needed
+}
+
+function handleKeyUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    document.getElementById('cs-ssh-key').value = e.target.result;
+    showToast("SSH Key loaded successfully!", "success");
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // Reset input
+}
 // ============================================================
 // SSH CERTIFICATES
 // ============================================================
@@ -830,66 +949,9 @@ function debounce(fn, delay) {
   };
 }
 
-// ============================================================
-// WEB SSH TERMINAL
-// ============================================================
-
-let term = null;
-let fitAddon = null;
-let socket = null;
-
 function openWebConsole(slug, name) {
   closeModal('modal-view-secret');
-  openModal('modal-terminal');
-  document.getElementById('term-title').textContent = `Console: ${name}`;
-  
-  const container = document.getElementById('terminal-container');
-  container.innerHTML = '';
-  
-  term = new Terminal({
-    cursorBlink: true,
-    theme: { background: '#000000', foreground: '#ffffff' },
-    fontFamily: '"JetBrains Mono", monospace'
-  });
-  fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  term.open(container);
-  fitAddon.fit();
-  
-  term.writeln('\x1b[36mInitializing connection...\x1b[0m');
-  
-  socket = io({ transports: ['websocket'] });
-  
-  socket.on('connect', () => {
-    socket.emit('start_terminal', { token: authToken, slug: slug });
-  });
-  
-  socket.on('terminal_output', (data) => {
-    term.write(data);
-  });
-  
-  term.onData(data => {
-    if (socket) socket.emit('terminal_input', data);
-  });
-  
-  window.addEventListener('resize', debounce(() => {
-    if (fitAddon && term && socket) {
-      fitAddon.fit();
-      socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
-    }
-  }, 200));
-}
-
-function closeTerminal() {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
-  if (term) {
-    term.dispose();
-    term = null;
-  }
-  closeModal('modal-terminal');
+  window.open('/terminal.html?slug=' + encodeURIComponent(slug), '_blank');
 }
 
 

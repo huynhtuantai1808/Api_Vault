@@ -21,27 +21,27 @@
 
 ```mermaid
 flowchart TD
-    User([👤 User / Browser])
-    API_Client([🤖 Automation / CLI])
+    User(["👤 User / Browser"])
+    API_Client(["🤖 Automation / CLI"])
     
-    subgraph App [API Vault Service]
-        subFlask[Flask Backend API]
-        subWS[WebSockets (Socket.IO)]
+    subgraph App ["API Vault Service"]
+        subFlask["Flask Backend API"]
+        subWS["WebSockets (Socket.IO)"]
     end
     
-    DB[(PostgreSQL)\nUsers, API Keys, Audit]
-    Vault[(HashiCorp Vault)\nSecrets KV, SSH CA]
-    TargetServer[🖥️ Target SSH Server]
+    DB[("PostgreSQL<br>Users, API Keys, Audit")]
+    Vault[("HashiCorp Vault<br>Secrets KV, SSH CA")]
+    TargetServer["🖥️ Target SSH Server"]
 
-    User -->|Web UI / Terminal| subFlask
-    User -->|Interactive SSH| subWS
-    API_Client -->|REST API + X-API-Key| subFlask
+    User -->|"Web UI / Terminal"| subFlask
+    User -->|"Interactive SSH"| subWS
+    API_Client -->|"REST API + X-API-Key"| subFlask
     
-    subFlask -->|Read/Write| DB
-    subFlask -->|CRUD Secrets / Sign SSH| Vault
+    subFlask -->|"Read/Write"| DB
+    subFlask -->|"CRUD Secrets / Sign SSH"| Vault
     
-    subWS -->|Fetch Credentials| Vault
-    subWS -->|SSH Connect + 2FA| TargetServer
+    subWS -->|"Fetch Credentials"| Vault
+    subWS -->|"SSH Connect + 2FA"| TargetServer
 ```
 
 

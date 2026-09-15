@@ -4,7 +4,7 @@ app/__init__.py - Flask application factory.
 from flask import Flask, jsonify, send_from_directory
 from flasgger import Swagger
 from app.config import get_config
-from app.extensions import db, migrate, jwt, limiter, cors
+from app.extensions import db, migrate, jwt, limiter, cors, socketio
 
 
 SWAGGER_TEMPLATE = {
@@ -68,6 +68,7 @@ def create_app(config=None):
     jwt.init_app(app)
     limiter.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
+    socketio.init_app(app, async_mode="gevent")
 
     # Swagger docs
     Swagger(app, template=SWAGGER_TEMPLATE, config=SWAGGER_CONFIG)
@@ -80,6 +81,9 @@ def create_app(config=None):
     app.register_blueprint(ssh_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(import_bp)
+    
+    # Import socket events to register them
+    import app.sockets as _sockets
 
     # Serve Web Dashboard
     @app.route("/", defaults={"path": ""})

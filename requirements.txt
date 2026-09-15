@@ -19,3 +19,7 @@ marshmallow==3.21.3
 Flask-CORS==4.0.1
 requests==2.32.3
 pykeepass==4.1.1
+paramiko==3.4.0
+Flask-SocketIO==5.3.6
+gevent==24.2.1
+gevent-websocket==0.10.1

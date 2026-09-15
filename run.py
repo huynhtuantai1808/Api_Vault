@@ -18,4 +18,5 @@ if __name__ == "__main__":
 ║  Health    :  http://localhost:{port}/api/v1/admin/health  ║
 ╚══════════════════════════════════════════════════════════╝
     """)
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    from app.extensions import socketio
+    socketio.run(app, host="0.0.0.0", port=port, debug=debug)

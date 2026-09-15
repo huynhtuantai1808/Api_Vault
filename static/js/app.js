@@ -274,15 +274,36 @@ async function viewSecret(slug) {
   document.getElementById('vs-host').textContent = `${data.host}:${data.port}`;
   document.getElementById('vs-username').textContent = data.username;
   
+  const consoleBtn = document.getElementById('btn-open-console');
+  if (data.auth_type === 'password' || data.auth_type === 'ssh_key') {
+    consoleBtn.classList.remove('hidden');
+    consoleBtn.onclick = () => openWebConsole(slug, data.name || slug);
+  } else {
+    consoleBtn.classList.add('hidden');
+  }
+  
   if (data.auth_type === 'password' || data.auth_type === 'token') {
     document.getElementById('vs-password-group').style.display = 'block';
     document.getElementById('vs-ssh-group').style.display = 'none';
     document.getElementById('vs-secret-label').textContent = data.auth_type === 'token' ? 'Token' : 'Password';
     document.getElementById('vs-secret-val').textContent = data.auth_type === 'token' ? data.token : data.password;
+    
+    // Quick connect command
+    const portFlag = data.port && data.port !== 22 ? ` -p ${data.port}` : '';
+    if (data.auth_type === 'password') {
+      const escapedPw = (data.password || '').replace(/'/g, "'\\''");
+      document.getElementById('vs-cmd-val').textContent = `sshpass -p '${escapedPw}' ssh ${data.username}@${data.host}${portFlag}`;
+    } else {
+      document.getElementById('vs-cmd-val').textContent = `curl -H "Authorization: Bearer ${data.token}" http://${data.host}${portFlag}`;
+    }
   } else if (data.auth_type === 'ssh_key') {
     document.getElementById('vs-password-group').style.display = 'none';
     document.getElementById('vs-ssh-group').style.display = 'block';
     document.getElementById('vs-ssh-val').value = data.ssh_private_key;
+    
+    // Quick connect command
+    const portFlag = data.port && data.port !== 22 ? ` -p ${data.port}` : '';
+    document.getElementById('vs-cmd-val').textContent = `ssh -i /path/to/private_key.pem ${data.username}@${data.host}${portFlag}`;
   }
   
   // Handle TOTP
@@ -754,12 +775,7 @@ function closeModal(id) {
   document.getElementById(id).classList.add('hidden');
 }
 
-// Close modal on backdrop click
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(overlay.id);
-  });
-});
+// Backdrop click to close is disabled as requested
 
 // ============================================================
 // SIDEBAR TOGGLE
@@ -815,8 +831,67 @@ function debounce(fn, delay) {
 }
 
 // ============================================================
-// KDBX IMPORT
+// WEB SSH TERMINAL
 // ============================================================
+
+let term = null;
+let fitAddon = null;
+let socket = null;
+
+function openWebConsole(slug, name) {
+  closeModal('modal-view-secret');
+  openModal('modal-terminal');
+  document.getElementById('term-title').textContent = `Console: ${name}`;
+  
+  const container = document.getElementById('terminal-container');
+  container.innerHTML = '';
+  
+  term = new Terminal({
+    cursorBlink: true,
+    theme: { background: '#000000', foreground: '#ffffff' },
+    fontFamily: '"JetBrains Mono", monospace'
+  });
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(container);
+  fitAddon.fit();
+  
+  term.writeln('\x1b[36mInitializing connection...\x1b[0m');
+  
+  socket = io({ transports: ['websocket'] });
+  
+  socket.on('connect', () => {
+    socket.emit('start_terminal', { token: authToken, slug: slug });
+  });
+  
+  socket.on('terminal_output', (data) => {
+    term.write(data);
+  });
+  
+  term.onData(data => {
+    if (socket) socket.emit('terminal_input', data);
+  });
+  
+  window.addEventListener('resize', debounce(() => {
+    if (fitAddon && term && socket) {
+      fitAddon.fit();
+      socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+    }
+  }, 200));
+}
+
+function closeTerminal() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  if (term) {
+    term.dispose();
+    term = null;
+  }
+  closeModal('modal-terminal');
+}
+
 
 let _kdbxPreviewData = null;   // hold parsed preview for Import All
 let _kdbxPollTimer  = null;    // interval handle for job polling

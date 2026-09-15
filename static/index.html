@@ -470,9 +470,18 @@
             <input id="cs-port" type="number" class="form-control" value="22" />
           </div>
         </div>
-        <div class="form-group">
-          <label>Username *</label>
-          <input id="cs-username" type="text" class="form-control" placeholder="root" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username *</label>
+            <input id="cs-username" type="text" class="form-control" placeholder="root" />
+          </div>
+          <div class="form-group">
+            <label>OS Type *</label>
+            <select id="cs-os-type" class="form-control">
+              <option value="linux">Linux</option>
+              <option value="windows">Windows</option>
+            </select>
+          </div>
         </div>
         <div id="auth-field-password" class="form-group">
           <label>Password</label>
@@ -575,6 +584,7 @@
       <div class="modal-header">
         <div style="display:flex;align-items:center;gap:12px">
           <h3 id="vs-title">View Secret</h3>
+          <button id="btn-download-rdp" class="btn btn-secondary btn-sm hidden">💻 Download .rdp</button>
           <button id="btn-open-console" class="btn btn-primary btn-sm hidden" onclick="openWebConsole()">🖥️ Web Console</button>
         </div>
         <button class="modal-close" onclick="closeModal('modal-view-secret')">✕</button>

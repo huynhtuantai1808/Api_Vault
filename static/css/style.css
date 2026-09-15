@@ -697,6 +697,12 @@ label {
   box-shadow: 0 0 0 3px rgba(99,179,237,0.12);
 }
 
+select.form-control option,
+select.form-control-sm option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .form-control-sm {
   padding: 6px 12px;
   background: rgba(255,255,255,0.05);

@@ -11,10 +11,13 @@
 | 🔑 **API Key Management** | Generate, revoke, rotate keys với phân quyền scope |
 | 💻 **SSH Certificates** | Ký SSH key qua Vault SSH CA, download bundle |
 | 🌐 **Web Terminal** | Giao diện Console (Tab riêng), kết nối SSH trực tiếp trên trình duyệt, hỗ trợ Auto-fill 2FA/TOTP |
+| 💻 **Windows RDP** | Sinh tự động và tải xuống file `.rdp` để truy cập Remote Desktop trực tiếp |
 | 📦 **KeePass Import** | Import hàng loạt Server credentials từ file `.kdbx` bằng Background job |
-| 👥 **User Management** | CRUD users với phân quyền admin |
+| ⬆️⬇️ **Export / Import** | Sao lưu và khôi phục toàn bộ danh sách server qua định dạng JSON |
+| 🐧🪟 **OS Classification**| Phân loại và hiển thị icon trực quan cho máy chủ Windows / Linux |
+| 👥 **User Management** | CRUD users với phân quyền admin, mỗi user sở hữu một Vault độc lập |
 | 📋 **Audit Logs** | Ghi lại toàn bộ thao tác nhạy cảm |
-| 🖥️ **Web Dashboard** | Giao diện quản lý dark mode, hỗ trợ quét QR TOTP, Upload file SSH key, Filter/Sort danh sách thông minh |
+| 🖥️ **Web Dashboard** | Hỗ trợ dark mode, quét QR TOTP, Upload SSH key, Filter/Sort, Bulk Delete |
 | 📖 **Swagger UI** | API documentation tại `/apidocs` |
 
 ## Kiến trúc Hệ thống (Architecture Diagram)

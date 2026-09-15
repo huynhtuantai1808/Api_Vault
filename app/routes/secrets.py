@@ -276,6 +276,85 @@ def get_secret(slug: str):
     return jsonify(result), 200
 
 
+@secrets_bp.route("/<slug>/rdp", methods=["GET"])
+@require_auth("secrets:read")
+def download_rdp(slug: str):
+    """
+    Generate and download an .rdp connection file for the server.
+    """
+    base_path = _get_user_vault_path()
+    data = VaultClient.kv_read(f"{base_path}/{slug}")
+    if data is None:
+        return jsonify({"error": "Secret not found"}), 404
+
+    host = data.get("host", "")
+    port = data.get("port", 3389)
+    username = data.get("username", "")
+
+    AuditLog.log(
+        action="secret.rdp_download",
+        user_id=g.current_user.id if g.current_user else None,
+        api_key_id=g.current_api_key.id if g.current_api_key else None,
+        resource_type="secret",
+        resource_id=slug,
+        ip_address=_ip()
+    )
+
+    rdp_content = f"""screen mode id:i:2
+use multimon:i:0
+desktopwidth:i:1920
+desktopheight:i:1080
+session bpp:i:32
+winposstr:s:0,1,0,0,800,600
+compression:i:1
+keyboardhook:i:2
+audiocapturemode:i:0
+videoplaybackmode:i:1
+connection type:i:7
+networkautodetect:i:1
+bandwidthautodetect:i:1
+displayconnectionbar:i:1
+enableworkspacereconnect:i:0
+disable wallpaper:i:0
+allow font smoothing:i:0
+allow desktop composition:i:0
+disable full window drag:i:1
+disable menu anims:i:1
+disable themes:i:0
+disable cursor setting:i:0
+bitmapcachepersistenable:i:1
+full address:s:{host}:{port}
+audiomode:i:0
+redirectprinters:i:1
+redirectcomports:i:0
+redirectsmartcards:i:1
+redirectclipboard:i:1
+redirectposdevices:i:0
+autoreconnection enabled:i:1
+authentication level:i:2
+prompt for credentials:i:1
+negotiate security layer:i:1
+remoteapplicationmode:i:0
+alternate shell:s:
+shell working directory:s:
+gatewayhostname:s:
+gatewayusagemethod:i:4
+gatewaycredentialssource:i:4
+gatewayprofileusagemethod:i:0
+promptcredentialonce:i:0
+gatewaybrokeringtype:i:0
+use redirection server name:i:0
+rdgiskdcproxy:i:0
+kdcproxyname:s:
+username:s:{username}
+"""
+
+    return rdp_content, 200, {
+        "Content-Type": "application/x-rdp",
+        "Content-Disposition": f"attachment; filename={slug}.rdp"
+    }
+
+
 @secrets_bp.route("", methods=["POST"])
 @require_auth("secrets:write")
 @limiter.limit("50 per hour")

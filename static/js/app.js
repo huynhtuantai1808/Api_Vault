@@ -238,7 +238,7 @@ function renderSecrets(secrets) {
   tbody.innerHTML = secrets.map(s => `
     <tr>
       <td><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()"></td>
-      <td><strong>${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
+      <td><strong>${s.os_type === 'windows' ? '🪟' : '🐧'} ${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
       <td class="mono">${s.host}</td>
       <td>${s.port}</td>
       <td class="mono">${s.username}</td>
@@ -469,11 +469,29 @@ async function viewSecret(slug) {
   document.getElementById('vs-username').textContent = data.username;
   
   const consoleBtn = document.getElementById('btn-open-console');
+  const rdpBtn = document.getElementById('btn-download-rdp');
+  
   if (data.auth_type === 'password' || data.auth_type === 'ssh_key') {
     consoleBtn.classList.remove('hidden');
     consoleBtn.onclick = () => openWebConsole(slug, data.name || slug);
+    
+    // For RDP, we typically only use passwords, but we'll show it alongside the console
+    if (data.auth_type === 'password') {
+      rdpBtn.classList.remove('hidden');
+      rdpBtn.onclick = () => downloadRdp(slug);
+    } else {
+      rdpBtn.classList.add('hidden');
+    }
   } else {
     consoleBtn.classList.add('hidden');
+    rdpBtn.classList.add('hidden');
+  }
+  
+  const cmdGroup = document.getElementById('vs-cmd-group');
+  if (data.os_type === 'windows') {
+    cmdGroup.style.display = 'none';
+  } else {
+    cmdGroup.style.display = 'block';
   }
   
   if (data.auth_type === 'password' || data.auth_type === 'token') {
@@ -568,6 +586,7 @@ async function createSecret() {
     host: document.getElementById('cs-host').value.trim(),
     port: parseInt(document.getElementById('cs-port').value) || 22,
     username: document.getElementById('cs-username').value.trim(),
+    os_type: document.getElementById('cs-os-type').value,
     auth_type: authType,
     password: document.getElementById('cs-password').value,
     ssh_private_key: document.getElementById('cs-ssh-key').value,
@@ -601,6 +620,7 @@ async function editSecret(slug) {
   document.getElementById('cs-host').value = data.host || '';
   document.getElementById('cs-port').value = data.port || 22;
   document.getElementById('cs-username').value = data.username || '';
+  document.getElementById('cs-os-type').value = data.os_type || 'linux';
   document.getElementById('cs-auth-type').value = data.auth_type || 'password';
   toggleAuthFields();
   document.getElementById('cs-password').value = data.password !== '***HIDDEN***' ? (data.password || '') : '';
@@ -620,6 +640,7 @@ async function editSecret(slug) {
       host: document.getElementById('cs-host').value.trim(),
       port: parseInt(document.getElementById('cs-port').value) || 22,
       username: document.getElementById('cs-username').value.trim(),
+      os_type: document.getElementById('cs-os-type').value,
       auth_type: document.getElementById('cs-auth-type').value,
       password: document.getElementById('cs-password').value,
       ssh_private_key: document.getElementById('cs-ssh-key').value,
@@ -1087,6 +1108,22 @@ function openWebConsole(slug, name) {
   window.open('/terminal.html?slug=' + encodeURIComponent(slug), '_blank');
 }
 
+async function downloadRdp(slug) {
+  const res = await apiFetch(`/secrets/${slug}/rdp`);
+  if (!res?.ok) {
+    showToast('Failed to generate RDP file', 'error');
+    return;
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${slug}.rdp`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
 
 let _kdbxPreviewData = null;   // hold parsed preview for Import All
 let _kdbxPollTimer  = null;    // interval handle for job polling

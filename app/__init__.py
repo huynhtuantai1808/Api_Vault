@@ -108,7 +108,11 @@ def create_app(config=None):
         static_dir = os.path.join(app.root_path, "..", "static")
         if path and os.path.exists(os.path.join(static_dir, path)):
             return send_from_directory(static_dir, path)
-        return send_from_directory(static_dir, "index.html")
+        response = send_from_directory(static_dir, "index.html")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     # Global error handlers
     @app.errorhandler(404)

@@ -217,42 +217,257 @@ async function loadDashboard() {
 // ============================================================
 
 let allSecrets = [];
+let allKeys = [];
+let allUsers = [];
+let selectedSecrets = new Set();
+let currentFolderFilter = null;
+let contextMenuFolder = null;
+
+// Hide context menu on click outside
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('folder-context-menu');
+  if (menu && !menu.classList.contains('hidden')) {
+    menu.classList.add('hidden');
+  }
+});
+
+window.showFolderContextMenu = function(event, folderName) {
+  event.preventDefault(); // Prevent native right-click menu
+  
+  contextMenuFolder = folderName;
+  const menu = document.getElementById('folder-context-menu');
+  
+  // Show/Hide specific items based on if it's "All Servers" or a real folder
+  const renameItem = document.getElementById('menu-item-rename');
+  const deleteItem = document.getElementById('menu-item-delete');
+  
+  if (folderName === null) {
+    // "All Servers" selected - only allow New Folder
+    renameItem.style.display = 'none';
+    deleteItem.style.display = 'none';
+  } else {
+    renameItem.style.display = 'block';
+    deleteItem.style.display = 'block';
+  }
+  
+  menu.style.left = `${event.pageX}px`;
+  menu.style.top = `${event.pageY}px`;
+  menu.classList.remove('hidden');
+};
+
+window.handleContextMenuAction = function(action) {
+  const menu = document.getElementById('folder-context-menu');
+  menu.classList.add('hidden');
+  
+  if (action === 'new') {
+    createVirtualFolder();
+  } else if (action === 'rename' && contextMenuFolder) {
+    renameFolder(contextMenuFolder);
+  } else if (action === 'delete' && contextMenuFolder) {
+    deleteFolder(contextMenuFolder);
+  }
+};
+
+window.selectSidebarFolder = function(folderName) {
+  currentFolderFilter = folderName;
+  
+  // Highlight active
+  document.querySelectorAll('#sidebar-folders li').forEach(li => {
+    li.classList.toggle('active', li.dataset.folder === folderName);
+  });
+  
+  // Re-render
+  filterSecrets();
+}
+
+window.createVirtualFolder = function() {
+  currentEditSlug = null;
+  document.getElementById('cs-name').value = '';
+  document.getElementById('cs-host').value = '';
+  document.getElementById('cs-port').value = '22';
+  document.getElementById('cs-username').value = '';
+  document.getElementById('cs-os-type').value = 'linux';
+  
+  // Prompt for folder name
+  const f = prompt('Enter name for the new folder:');
+  if (!f) return;
+  document.getElementById('cs-folder').value = f.trim();
+  
+  document.getElementById('cs-auth-type').value = 'password';
+  document.getElementById('cs-password').value = '';
+  document.getElementById('cs-ssh-key').value = '';
+  document.getElementById('cs-token').value = '';
+  document.getElementById('cs-totp').value = '';
+  document.getElementById('cs-description').value = '';
+  document.getElementById('cs-tags').value = '';
+  
+  document.getElementById('modal-create-secret').classList.remove('hidden');
+  toggleAuthFields();
+};
+
+window.renameFolder = async function(oldName) {
+  const newName = prompt(`Rename folder "${oldName}" to:`, oldName);
+  if (!newName || newName.trim() === '' || newName === oldName) return;
+  
+  const secretsInFolder = allSecrets.filter(s => (s.folder || 'Uncategorized') === oldName);
+  if (!confirm(`This will move ${secretsInFolder.length} servers to "${newName}". Continue?`)) return;
+  
+  showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
+  for (const s of secretsInFolder) {
+    const getRes = await apiFetch(`/secrets/${s._id}`);
+    if (!getRes.ok) continue;
+    const fullData = await getRes.json();
+    fullData.folder = newName.trim();
+    await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+  }
+  showToast('Folder renamed successfully', 'success');
+  loadSecrets();
+};
+
+window.deleteFolder = async function(oldName) {
+  if (!confirm(`Are you sure you want to remove the folder "${oldName}"?\n\nThe servers inside it will NOT be deleted, they will just be moved to Uncategorized.`)) return;
+  
+  const secretsInFolder = allSecrets.filter(s => (s.folder || 'Uncategorized') === oldName);
+  showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
+  
+  for (const s of secretsInFolder) {
+    const getRes = await apiFetch(`/secrets/${s._id}`);
+    if (!getRes.ok) continue;
+    const fullData = await getRes.json();
+    fullData.folder = ''; // Remove folder
+    await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+  }
+  showToast('Folder removed successfully', 'success');
+  loadSecrets();
+};
+
+window.renderSidebarFolders = function(secrets) {
+  const tree = document.getElementById('sidebar-folders');
+  if (!tree) return;
+  
+  const counts = { 'All Servers': secrets.length };
+  secrets.forEach(s => {
+    const f = s.folder || 'Uncategorized';
+    counts[f] = (counts[f] || 0) + 1;
+  });
+  
+  const folders = Object.keys(counts).filter(k => k !== 'All Servers').sort((a,b) => {
+    if (a === 'Uncategorized') return 1;
+    if (b === 'Uncategorized') return -1;
+    return a.localeCompare(b);
+  });
+  
+  let html = `
+    <li data-folder="" class="${!currentFolderFilter ? 'active' : ''}" onclick="selectSidebarFolder(null)" oncontextmenu="showFolderContextMenu(event, null)">
+      📁 All Servers 
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${counts['All Servers']}</span>
+    </li>
+  `;
+  
+  folders.forEach(f => {
+    const safeF = f.replace(/'/g, "\\'");
+    
+    html += `
+      <li data-folder="${f}" class="${currentFolderFilter === f ? 'active' : ''}" onclick="selectSidebarFolder('${safeF}')" oncontextmenu="showFolderContextMenu(event, '${safeF}')">
+        📁 ${f} 
+        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${counts[f]}</span>
+      </li>
+    `;
+  });
+  
+  tree.innerHTML = html;
+  
+  const isSecretsPage = document.getElementById('page-secrets').classList.contains('active');
+  if (isSecretsPage) {
+    tree.classList.add('show');
+  }
+  
+  // Also populate datalist
+  const datalist = document.getElementById('folder-list');
+  if (datalist) {
+    datalist.innerHTML = folders.filter(f => f !== 'Uncategorized').map(f => `<option value="${f}">`).join('');
+  }
+}
 
 async function loadSecrets() {
   const tbody = document.getElementById('secrets-body');
   tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Loading...</td></tr>';
 
   const res = await apiFetch('/secrets');
-  if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">Failed to load</td></tr>'; return; }
+  if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Failed to load</td></tr>'; return; }
   const data = await res.json();
   allSecrets = data.secrets || [];
   renderSecrets(allSecrets);
+  renderSidebarFolders(allSecrets);
 }
+
+window.toggleFolder = function(folderId) {
+  const rows = document.querySelectorAll(`.f-row-${folderId}`);
+  const icon = document.getElementById(`f-icon-${folderId}`);
+  const isHidden = rows[0]?.classList.contains('hidden');
+  
+  rows.forEach(r => r.classList.toggle('hidden', !isHidden));
+  if (icon) icon.textContent = isHidden ? '▼' : '▶';
+};
 
 function renderSecrets(secrets) {
   const tbody = document.getElementById('secrets-body');
-  if (!secrets.length) {
+  if (secrets.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No secrets stored yet</td></tr>';
     return;
   }
-  tbody.innerHTML = secrets.map(s => `
-    <tr>
-      <td><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()"></td>
-      <td><strong>${s.os_type === 'windows' ? '🪟' : '🐧'} ${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
-      <td class="mono">${s.host}</td>
-      <td>${s.port}</td>
-      <td class="mono">${s.username}</td>
-      <td><span class="badge ${authTypeBadge(s.auth_type)}">${s.auth_type}</span></td>
-      <td><div class="tags-list">${(s.tags || []).map(t => `<span class="badge badge-gray">${t}</span>`).join('')}</div></td>
-      <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-ghost btn-sm" onclick="viewSecret('${s._id}')">👁 View</button>
-          <button class="btn btn-ghost btn-sm" onclick="editSecret('${s._id}')">✏️</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteSecret('${s._id}')">🗑</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  
+  const grouped = {};
+  const secretsToRender = currentFolderFilter 
+    ? secrets.filter(s => (s.folder || 'Uncategorized') === currentFolderFilter)
+    : secrets;
+
+  secretsToRender.forEach(s => {
+    const f = s.folder || 'Uncategorized';
+    if (!grouped[f]) grouped[f] = [];
+    grouped[f].push(s);
+  });
+  
+  const folders = Object.keys(grouped).sort((a, b) => {
+    if (a === 'Uncategorized') return 1;
+    if (b === 'Uncategorized') return -1;
+    return a.localeCompare(b);
+  });
+  
+  let html = '';
+  folders.forEach((f, idx) => {
+    const folderId = `f${idx}`;
+    html += `
+      <tr class="folder-header" onclick="toggleFolder('${folderId}')" style="cursor:pointer; background:rgba(255,255,255,0.03); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td colspan="8">
+          <span id="f-icon-${folderId}" style="display:inline-block; width:20px; font-size:12px; transition:0.2s">▼</span>
+          📁 <strong>${f}</strong> <span style="color:var(--text-muted);font-size:12px;margin-left:6px">(${grouped[f].length})</span>
+        </td>
+      </tr>
+    `;
+    grouped[f].forEach(s => {
+      html += `
+        <tr class="f-row-${folderId}" ondblclick="viewSecret('${s._id}')" title="Double-click to view" style="cursor: pointer;">
+          <td onclick="event.stopPropagation()"><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()"></td>
+          <td><strong>${s.os_type === 'windows' ? '🪟' : '🐧'} ${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
+          <td class="mono">${s.host}</td>
+          <td>${s.port}</td>
+          <td class="mono">${s.username}</td>
+          <td><span class="badge ${authTypeBadge(s.auth_type)}">${s.auth_type}</span></td>
+          <td><div class="tags-list">${(s.tags || []).map(t => `<span class="badge badge-gray">${t}</span>`).join('')}</div></td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="viewSecret('${s._id}')">👁 View</button>
+              <button class="btn btn-ghost btn-sm" onclick="editSecret('${s._id}')">✏️</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteSecret('${s._id}')">🗑</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  });
+  
+  tbody.innerHTML = html;
   
   const selectAll = document.getElementById('select-all-secrets');
   if (selectAll) selectAll.checked = false;
@@ -475,8 +690,8 @@ async function viewSecret(slug) {
     consoleBtn.classList.remove('hidden');
     consoleBtn.onclick = () => openWebConsole(slug, data.name || slug);
     
-    // For RDP, we typically only use passwords, but we'll show it alongside the console
-    if (data.auth_type === 'password') {
+    // Only show RDP for Windows servers
+    if (data.os_type === 'windows') {
       rdpBtn.classList.remove('hidden');
       rdpBtn.onclick = () => downloadRdp(slug);
     } else {
@@ -587,6 +802,7 @@ async function createSecret() {
     port: parseInt(document.getElementById('cs-port').value) || 22,
     username: document.getElementById('cs-username').value.trim(),
     os_type: document.getElementById('cs-os-type').value,
+    folder: document.getElementById('cs-folder').value.trim(),
     auth_type: authType,
     password: document.getElementById('cs-password').value,
     ssh_private_key: document.getElementById('cs-ssh-key').value,
@@ -621,6 +837,7 @@ async function editSecret(slug) {
   document.getElementById('cs-port').value = data.port || 22;
   document.getElementById('cs-username').value = data.username || '';
   document.getElementById('cs-os-type').value = data.os_type || 'linux';
+  document.getElementById('cs-folder').value = data.folder || '';
   document.getElementById('cs-auth-type').value = data.auth_type || 'password';
   toggleAuthFields();
   document.getElementById('cs-password').value = data.password !== '***HIDDEN***' ? (data.password || '') : '';
@@ -641,6 +858,7 @@ async function editSecret(slug) {
       port: parseInt(document.getElementById('cs-port').value) || 22,
       username: document.getElementById('cs-username').value.trim(),
       os_type: document.getElementById('cs-os-type').value,
+      folder: document.getElementById('cs-folder').value.trim(),
       auth_type: document.getElementById('cs-auth-type').value,
       password: document.getElementById('cs-password').value,
       ssh_private_key: document.getElementById('cs-ssh-key').value,

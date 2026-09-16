@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=1.5" />
 </head>
 <body>
   <!-- Login Overlay -->
@@ -68,6 +68,9 @@
         <a href="#" class="nav-item" data-page="secrets" onclick="navigate('secrets')">
           <span class="nav-icon">🗝️</span><span class="nav-label">Server Secrets</span>
         </a>
+        <ul id="sidebar-folders" class="folder-tree">
+          <!-- Dynamically populated by JS -->
+        </ul>
         <a href="#" class="nav-item" data-page="ssh" onclick="navigate('ssh')">
           <span class="nav-icon">💻</span><span class="nav-label">SSH Certificates</span>
         </a>
@@ -512,9 +515,16 @@
           <label>Description</label>
           <input id="cs-description" type="text" class="form-control" placeholder="Production web server" />
         </div>
-        <div class="form-group">
-          <label>Tags (comma-separated)</label>
-          <input id="cs-tags" type="text" class="form-control" placeholder="prod, web, linux" />
+        <div class="form-row">
+          <div class="form-group">
+            <label>Folder / Group</label>
+            <input id="cs-folder" type="text" class="form-control" list="folder-list" placeholder="e.g. Production" />
+            <datalist id="folder-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Tags (comma-separated)</label>
+            <input id="cs-tags" type="text" class="form-control" placeholder="prod, web, linux" />
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -668,10 +678,18 @@
   </div>
 
 
+  <!-- Context Menu for Folders -->
+  <div id="folder-context-menu" class="context-menu hidden">
+    <div class="menu-item" onclick="handleContextMenuAction('new')">➕ New Folder</div>
+    <div class="menu-item" id="menu-item-rename" onclick="handleContextMenuAction('rename')">✏️ Rename</div>
+    <div class="menu-item menu-item-danger" id="menu-item-delete" onclick="handleContextMenuAction('delete')">🗑️ Delete</div>
+  </div>
+
   <!-- Toast notification -->
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="/static/js/app.js?v=1.4"></script>
 </body>
 </html>

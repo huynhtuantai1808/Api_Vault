@@ -14,7 +14,47 @@ from flask import current_app
 # Store SSH channels mapping request.sid to paramiko channels
 active_channels = {}
 active_ssh_clients = {}
+active_guac_clients = {}
 
+def proxy_guac_output(sid, guac_client):
+    """Background task to read from guacd and send to WebSocket."""
+    import re
+    buf = b""
+    try:
+        while True:
+            chunk = guac_client.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            # Auto-reply to 'sync' instructions immediately without round-trip to JS
+            # This prevents "User is not responding" timeout
+            while b";" in buf:
+                semi = buf.index(b";")
+                instr_bytes = buf[:semi+1]
+                buf = buf[semi+1:]
+                instr_str = instr_bytes.decode("utf-8", "replace")
+                # Quick parse opcode
+                try:
+                    dot = instr_str.index(".")
+                    op_len = int(instr_str[:dot])
+                    opcode = instr_str[dot+1:dot+1+op_len]
+                    if opcode == "sync":
+                        # Extract timestamp and reply immediately
+                        rest = instr_str[dot+1+op_len+1:]  # skip opcode and comma
+                        tdot = rest.index(".")
+                        ts_len = int(rest[:tdot])
+                        ts_val = rest[tdot+1:tdot+1+ts_len]
+                        sync_reply = f"4.sync,{len(ts_val)}.{ts_val};"
+                        guac_client.write(sync_reply)
+                except Exception:
+                    pass
+                socketio.emit("guac_instruction", instr_bytes, to=sid)
+            socketio.sleep(0)  # yield to other greenlets
+    except Exception as e:
+        print(f"Guacamole read error: {e}")
+    finally:
+        socketio.emit("guac_state", 5, to=sid)  # CLOSED
+        cleanup_session(sid)
 
 
 def proxy_ssh_output(sid, chan):
@@ -194,6 +234,80 @@ def on_terminal_resize(data):
         except:
             pass
 
+@socketio.on("start_rdp")
+def on_start_rdp(data):
+    sid = request.sid
+    token = data.get("token")
+    slug = data.get("slug")
+    width = data.get("width", 1024)
+    height = data.get("height", 768)
+    
+    try:
+        decoded = decode_token(token)
+        user_id = decoded.get("sub")
+        from app.models.user import User
+        user = User.query.get(user_id)
+        if not user:
+            emit("guac_state", 4) # ERROR
+            return
+        owner = user.username
+        
+        secret = VaultClient.kv_read(f"servers/{owner}/{slug}")
+        if not secret:
+            emit("guac_state", 4)
+            return
+            
+        host = secret.get("host")
+        port = int(secret.get("port", 3389))
+        username = secret.get("username", "")
+        domain = ""
+        if "\\" in username:
+            domain, username = username.split("\\", 1)
+            
+        password = secret.get("password", "")
+        
+        from app.utils.guac_client import GuacamoleClient
+        guac = GuacamoleClient(host='127.0.0.1', port=4822)
+        guac.connect()
+        kwargs = {
+            'hostname': host,
+            'port': port,
+            'username': username,
+            'domain': domain,
+            'password': password,
+            'ignore-cert': 'true',
+            'security': 'nla',
+            'width': width,
+            'height': height
+        }
+        conn_id = guac.handshake("rdp", **kwargs)
+        
+        # Send synthesized ready instruction to JS client
+        ready_inst = f"5.ready,{len(conn_id)}.{conn_id};"
+        emit("guac_instruction", ready_inst.encode('utf-8'))
+        
+        emit("guac_state", 1) # Guacamole.Tunnel.State.OPEN
+        active_guac_clients[sid] = guac
+        socketio.start_background_task(proxy_guac_output, sid, guac)
+        
+    except Exception as e:
+        print(f"RDP Start Error: {e}")
+        emit("guac_state", 4)
+
+@socketio.on("guac_input")
+def on_guac_input(data):
+    sid = request.sid
+    guac = active_guac_clients.get(sid)
+    if guac:
+        try:
+            guac.write(data)
+        except:
+            pass
+
+@socketio.on("stop_rdp")
+def on_stop_rdp():
+    cleanup_session(request.sid)
+
 @socketio.on("disconnect")
 def on_disconnect():
     cleanup_session(request.sid)
@@ -209,5 +323,11 @@ def cleanup_session(sid):
     if ssh:
         try:
             ssh.close()
+        except:
+            pass
+    guac = active_guac_clients.pop(sid, None)
+    if guac:
+        try:
+            guac.close()
         except:
             pass

@@ -91,6 +91,16 @@ services:
     restart: "no"
 
   # ─────────────────────────────────────────────
+  # Apache Guacamole Daemon (guacd) for RDP
+  # ─────────────────────────────────────────────
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: vault_guacd
+    ports:
+      - "4822:4822"
+    restart: always
+
+  # ─────────────────────────────────────────────
   # API Vault Application
   # ─────────────────────────────────────────────
   api_vault:

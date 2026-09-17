@@ -849,7 +849,7 @@ async function viewSecret(slug) {
   
   if (data.auth_type === 'password' || data.auth_type === 'ssh_key') {
     consoleBtn.classList.remove('hidden');
-    consoleBtn.onclick = () => openWebConsole(slug, data.name || slug);
+    consoleBtn.onclick = () => openWebConsole(slug, data.name || slug, data.os_type || 'linux');
     
     // Only show RDP for Windows servers
     if (data.os_type === 'windows') {
@@ -1515,9 +1515,13 @@ function debounce(fn, delay) {
   };
 }
 
-function openWebConsole(slug, name) {
+function openWebConsole(slug, name, osType = 'linux') {
   closeModal('modal-view-secret');
-  window.open('/terminal.html?slug=' + encodeURIComponent(slug), '_blank');
+  if (osType.toLowerCase() === 'windows') {
+    window.open('/static/rdp.html?slug=' + encodeURIComponent(slug), '_blank');
+  } else {
+    window.open('/static/terminal.html?slug=' + encodeURIComponent(slug), '_blank');
+  }
 }
 
 async function downloadRdp(slug) {

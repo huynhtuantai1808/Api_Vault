@@ -282,46 +282,48 @@ window.selectSidebarFolder = function(folderName) {
   filterSecrets();
 }
 
-window.createVirtualFolder = function() {
-  currentEditSlug = null;
-  document.getElementById('cs-name').value = '';
-  document.getElementById('cs-host').value = '';
-  document.getElementById('cs-port').value = '22';
-  document.getElementById('cs-username').value = '';
-  document.getElementById('cs-os-type').value = 'linux';
+window.createVirtualFolder = async function() {
+  const prefix = contextMenuFolder && contextMenuFolder !== 'Uncategorized' ? contextMenuFolder + '/' : '';
+  const newName = await asyncPrompt('Create Folder', 'Enter name for the new folder:', prefix);
+  if (!newName || newName.trim() === '') return;
   
-  // Prompt for folder name
-  const f = prompt('Enter name for the new folder:');
-  if (!f) return;
-  document.getElementById('cs-folder').value = f.trim();
+  const res = await apiFetch('/secrets/folders', {
+    method: 'POST',
+    body: JSON.stringify({ folder: newName.trim() })
+  });
   
-  document.getElementById('cs-auth-type').value = 'password';
-  document.getElementById('cs-password').value = '';
-  document.getElementById('cs-ssh-key').value = '';
-  document.getElementById('cs-token').value = '';
-  document.getElementById('cs-totp').value = '';
-  document.getElementById('cs-description').value = '';
-  document.getElementById('cs-tags').value = '';
-  
-  document.getElementById('modal-create-secret').classList.remove('hidden');
-  toggleAuthFields();
+  if (res && res.ok) {
+    showToast('Folder created', 'success');
+    loadSecrets();
+  } else {
+    showToast('Failed to create folder', 'error');
+  }
 };
 
 window.renameFolder = async function(oldName) {
-  const newName = prompt(`Rename folder "${oldName}" to:`, oldName);
+  const newName = await asyncPrompt('Rename Folder', `Rename folder "${oldName}" to:`, oldName);
   if (!newName || newName.trim() === '' || newName === oldName) return;
   
   const secretsInFolder = allSecrets.filter(s => (s.folder || 'Uncategorized') === oldName);
-  if (!confirm(`This will move ${secretsInFolder.length} servers to "${newName}". Continue?`)) return;
+  if (!confirm(`This will rename the folder and move ${secretsInFolder.length} servers to "${newName}". Continue?`)) return;
   
-  showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
-  for (const s of secretsInFolder) {
-    const getRes = await apiFetch(`/secrets/${s._id}`);
-    if (!getRes.ok) continue;
-    const fullData = await getRes.json();
-    fullData.folder = newName.trim();
-    await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+  // Create new folder explicitly
+  await apiFetch('/secrets/folders', { method: 'POST', body: JSON.stringify({ folder: newName.trim() }) });
+  
+  if (secretsInFolder.length > 0) {
+    showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
+    for (const s of secretsInFolder) {
+      const getRes = await apiFetch(`/secrets/${s._id}`);
+      if (!getRes.ok) continue;
+      const fullData = await getRes.json();
+      fullData.folder = newName.trim();
+      await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+    }
   }
+  
+  // Delete old explicit folder
+  await apiFetch(`/secrets/folders/${encodeURIComponent(oldName)}`, { method: 'DELETE' });
+  
   showToast('Folder renamed successfully', 'success');
   loadSecrets();
 };
@@ -330,54 +332,159 @@ window.deleteFolder = async function(oldName) {
   if (!confirm(`Are you sure you want to remove the folder "${oldName}"?\n\nThe servers inside it will NOT be deleted, they will just be moved to Uncategorized.`)) return;
   
   const secretsInFolder = allSecrets.filter(s => (s.folder || 'Uncategorized') === oldName);
-  showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
-  
-  for (const s of secretsInFolder) {
-    const getRes = await apiFetch(`/secrets/${s._id}`);
-    if (!getRes.ok) continue;
-    const fullData = await getRes.json();
-    fullData.folder = ''; // Remove folder
-    await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+  if (secretsInFolder.length > 0) {
+    showToast(`Updating ${secretsInFolder.length} servers...`, 'info');
+    for (const s of secretsInFolder) {
+      const getRes = await apiFetch(`/secrets/${s._id}`);
+      if (!getRes.ok) continue;
+      const fullData = await getRes.json();
+      fullData.folder = ''; // Remove folder
+      await apiFetch(`/secrets/${s._id}`, { method: 'PUT', body: JSON.stringify(fullData) });
+    }
   }
+  
+  // Delete the explicit folder if it exists
+  await apiFetch(`/secrets/folders/${encodeURIComponent(oldName)}`, { method: 'DELETE' });
+  
   showToast('Folder removed successfully', 'success');
   loadSecrets();
 };
 
-window.renderSidebarFolders = function(secrets) {
+window.sidebarExpandedFolders = window.sidebarExpandedFolders || {};
+
+window.promptCreateFolder = async function(event) {
+  event.stopPropagation();
+  const folderPath = await asyncPrompt('Create Folder', 'Enter new folder path (use / for nested folders, e.g. Linux/BNT_VikkiApp):');
+  if (!folderPath || !folderPath.trim()) return;
+  
+  const res = await apiFetch('/secrets/folders', {
+    method: 'POST',
+    body: JSON.stringify({ folder: folderPath.trim() })
+  });
+  
+  if (res && res.ok) {
+    showToast('Folder created', 'success');
+    loadSecrets();
+  } else {
+    showToast('Failed to create folder', 'error');
+  }
+};
+
+window.toggleSidebarFolder = function(event, path) {
+  event.stopPropagation();
+  window.sidebarExpandedFolders[path] = !window.sidebarExpandedFolders[path];
+  // Re-render sidebar to apply toggle state without reloading secrets
+  renderSidebarFolders(allSecrets);
+};
+
+window.renderSidebarFolders = function(secrets, explicit = []) {
   const tree = document.getElementById('sidebar-folders');
   if (!tree) return;
   
   const counts = { 'All Servers': secrets.length };
+  
+  // Build a tree structure
+  const root = { path: '', name: 'Root', children: {}, count: 0, exactCount: 0 };
+  
+  // Combine implicit folders from secrets and explicit folders
+  const allFolderPaths = new Set(explicit);
+  secrets.forEach(s => {
+    if (s.folder) allFolderPaths.add(s.folder);
+  });
+  
+  // Add secrets counts
   secrets.forEach(s => {
     const f = s.folder || 'Uncategorized';
     counts[f] = (counts[f] || 0) + 1;
+    if (f === 'Uncategorized') {
+        root.exactCount = (root.exactCount || 0) + 1;
+    }
+  });
+
+  // Build tree nodes for all known folders
+  allFolderPaths.forEach(f => {
+    const parts = f.split('/').filter(p => p.trim());
+    let current = root;
+    let currentPath = '';
+    
+    parts.forEach((part, i) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      if (!current.children[part]) {
+        current.children[part] = { path: currentPath, name: part, children: {}, count: 0, exactCount: 0 };
+      }
+      // Add counts from all servers that belong to this exact folder or its subfolders
+      current.children[part].count = secrets.filter(s => s.folder === currentPath || (s.folder && s.folder.startsWith(currentPath + '/'))).length;
+      current = current.children[part];
+      if (i === parts.length - 1) {
+          current.exactCount = counts[currentPath] || 0;
+      }
+    });
   });
   
-  const folders = Object.keys(counts).filter(k => k !== 'All Servers').sort((a,b) => {
-    if (a === 'Uncategorized') return 1;
-    if (b === 'Uncategorized') return -1;
-    return a.localeCompare(b);
-  });
+  // Recursive render function
+  function renderNode(node, depth) {
+    let html = '';
+    const hasChildren = Object.keys(node.children).length > 0;
+    const isExpanded = window.sidebarExpandedFolders[node.path] !== false; // Default true
+    const isActive = currentFolderFilter === node.path;
+    const safePath = node.path.replace(/'/g, "\\'");
+    
+    const padding = depth * 12 + 10;
+    
+    const toggleIcon = hasChildren ? (isExpanded ? '▼' : '▶') : '&nbsp;&nbsp;';
+    
+    html += `
+      <li data-folder="${node.path}" class="${isActive ? 'active' : ''}" style="padding-left: ${padding}px; display: flex; align-items: center;" oncontextmenu="showFolderContextMenu(event, '${safePath}')">
+        <span onclick="toggleSidebarFolder(event, '${safePath}')" style="cursor:pointer; width:16px; font-size:10px; opacity:0.6">${toggleIcon}</span>
+        <span onclick="selectSidebarFolder('${safePath}')" style="flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${node.name}">📁 ${node.name}</span>
+        <span style="font-size:11px;color:var(--text-muted)">${counts[node.path] || node.exactCount}</span>
+      </li>
+    `;
+    
+    if (hasChildren && isExpanded) {
+      // sort children alphabetically
+      const sortedKeys = Object.keys(node.children).sort((a,b) => a.localeCompare(b));
+      sortedKeys.forEach(k => {
+        html += renderNode(node.children[k], depth + 1);
+      });
+    }
+    
+    return html;
+  }
   
   let html = `
-    <li data-folder="" class="${!currentFolderFilter ? 'active' : ''}" onclick="selectSidebarFolder(null)" oncontextmenu="showFolderContextMenu(event, null)">
-      📁 All Servers 
-      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${counts['All Servers']}</span>
+    <li data-folder="" class="${!currentFolderFilter ? 'active' : ''}" style="padding-left: 10px; display: flex; align-items: center;" onclick="selectSidebarFolder(null)" oncontextmenu="showFolderContextMenu(event, null)">
+      <span style="width:16px;"></span>
+      <span style="flex:1;">📁 All Servers</span>
+      <span style="font-size:11px;color:var(--text-muted)">${counts['All Servers']}</span>
     </li>
   `;
   
-  folders.forEach(f => {
-    const safeF = f.replace(/'/g, "\\'");
-    
-    html += `
-      <li data-folder="${f}" class="${currentFolderFilter === f ? 'active' : ''}" onclick="selectSidebarFolder('${safeF}')" oncontextmenu="showFolderContextMenu(event, '${safeF}')">
-        📁 ${f} 
-        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${counts[f]}</span>
-      </li>
-    `;
+  // Render tree roots
+  const sortedRootKeys = Object.keys(root.children).sort((a,b) => a.localeCompare(b));
+  sortedRootKeys.forEach(k => {
+    html += renderNode(root.children[k], 0);
   });
   
+  // Render Uncategorized if any
+  if (counts['Uncategorized']) {
+      html += `
+        <li data-folder="Uncategorized" class="${currentFolderFilter === 'Uncategorized' ? 'active' : ''}" style="padding-left: 10px; display: flex; align-items: center;" onclick="selectSidebarFolder('Uncategorized')" oncontextmenu="showFolderContextMenu(event, 'Uncategorized')">
+          <span style="width:16px;"></span>
+          <span style="flex:1;">📁 Uncategorized</span>
+          <span style="font-size:11px;color:var(--text-muted)">${counts['Uncategorized']}</span>
+        </li>
+      `;
+  }
+  
   tree.innerHTML = html;
+  
+  // Bind search highlighting / filtering
+  document.querySelectorAll('#sidebar-folders li').forEach(li => {
+    if (li.dataset.folder) {
+      // Setup drag-and-drop or other events if needed
+    }
+  });
   
   const isSecretsPage = document.getElementById('page-secrets').classList.contains('active');
   if (isSecretsPage) {
@@ -385,10 +492,11 @@ window.renderSidebarFolders = function(secrets) {
   }
   
   // Also populate datalist
+  const optionsHtml = Array.from(allFolderPaths).filter(f => f && f !== 'Uncategorized').map(f => `<option value="${f}">`).join('');
   const datalist = document.getElementById('folder-list');
-  if (datalist) {
-    datalist.innerHTML = folders.filter(f => f !== 'Uncategorized').map(f => `<option value="${f}">`).join('');
-  }
+  if (datalist) datalist.innerHTML = optionsHtml;
+  const osDatalist = document.getElementById('os-folder-list');
+  if (osDatalist) osDatalist.innerHTML = optionsHtml;
 }
 
 async function loadSecrets() {
@@ -401,8 +509,9 @@ async function loadSecrets() {
   if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Failed to load</td></tr>'; return; }
   const data = await res.json();
   allSecrets = data.secrets || [];
+  window.explicitFolders = data.explicit_folders || [];
   filterSecrets();
-  renderSidebarFolders(allSecrets);
+  renderSidebarFolders(allSecrets, window.explicitFolders);
 }
 
 window.toggleFolder = function(folderId) {
@@ -439,7 +548,10 @@ function renderSecrets(secrets) {
   
   const grouped = {};
   const secretsToRender = currentFolderFilter 
-    ? secrets.filter(s => (s.folder || 'Uncategorized') === currentFolderFilter)
+    ? secrets.filter(s => {
+        const f = s.folder || 'Uncategorized';
+        return f === currentFolderFilter || f.startsWith(currentFolderFilter + '/');
+      })
     : secrets;
 
   secretsToRender.forEach(s => {
@@ -1309,13 +1421,44 @@ async function loadAuditLogs() {
 // MODAL HELPERS
 // ============================================================
 
-function openModal(id) {
+window.openModal = function(id) {
   document.getElementById(id).classList.remove('hidden');
-}
+};
 
-function closeModal(id) {
+window.closeModal = function(id) {
   document.getElementById(id).classList.add('hidden');
-}
+};
+
+window.asyncPrompt = function(title, label, defaultValue = '') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-prompt-input');
+    const input = document.getElementById('mpi-input');
+    const submitBtn = document.getElementById('mpi-submit');
+    const cancelBtn = document.getElementById('mpi-cancel');
+    const closeBtn = document.getElementById('mpi-close');
+    
+    document.getElementById('mpi-title').textContent = title;
+    document.getElementById('mpi-label').textContent = label;
+    input.value = defaultValue;
+    
+    const finish = (val) => {
+      modal.classList.add('hidden');
+      resolve(val);
+    };
+    
+    submitBtn.onclick = () => finish(input.value);
+    cancelBtn.onclick = () => finish(null);
+    closeBtn.onclick = () => finish(null);
+    
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') finish(input.value);
+      if (e.key === 'Escape') finish(null);
+    };
+    
+    modal.classList.remove('hidden');
+    input.focus();
+  });
+};
 
 // Backdrop click to close is disabled as requested
 

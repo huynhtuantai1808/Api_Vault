@@ -96,7 +96,44 @@ def list_secrets():
         safe["_id"] = slug_clean
         results.append(safe)
 
-    return jsonify({"secrets": results, "total": len(results)}), 200
+    # Also fetch explicit folders
+    meta = VaultClient.kv_read(f"{base_path}/.vault-metadata") or {}
+    explicit_folders = meta.get("folders", [])
+
+    return jsonify({"secrets": results, "explicit_folders": explicit_folders, "total": len(results)}), 200
+
+@secrets_bp.route("/folders", methods=["POST"])
+@require_auth("secrets:write")
+def add_folder():
+    """Add an explicit folder"""
+    data = request.json or {}
+    folder = data.get("folder")
+    if not folder:
+        return jsonify({"error": "Folder name required"}), 400
+    
+    base_path = _get_user_vault_path()
+    meta = VaultClient.kv_read(f"{base_path}/.vault-metadata") or {}
+    folders = meta.get("folders", [])
+    if folder not in folders:
+        folders.append(folder)
+        meta["folders"] = folders
+        VaultClient.kv_write(f"{base_path}/.vault-metadata", meta)
+        
+    return jsonify({"message": "Folder created", "folders": folders}), 201
+
+@secrets_bp.route("/folders/<path:folder>", methods=["DELETE"])
+@require_auth("secrets:write")
+def delete_folder(folder: str):
+    """Delete an explicit folder"""
+    base_path = _get_user_vault_path()
+    meta = VaultClient.kv_read(f"{base_path}/.vault-metadata") or {}
+    folders = meta.get("folders", [])
+    if folder in folders:
+        folders.remove(folder)
+        meta["folders"] = folders
+        VaultClient.kv_write(f"{base_path}/.vault-metadata", meta)
+        
+    return jsonify({"message": "Folder deleted", "folders": folders}), 200
 
 
 @secrets_bp.route("/export", methods=["GET"])
@@ -442,6 +479,8 @@ def create_secret():
         "host": data["host"],
         "port": int(data.get("port", 22)),
         "username": data["username"],
+        "os_type": data.get("os_type", "linux"),
+        "folder": data.get("folder", ""),
         "auth_type": auth_type,
         "password": data.get("password", ""),
         "ssh_private_key": data.get("ssh_private_key", ""),

@@ -191,7 +191,8 @@
           <h2 class="section-title">Server Credentials</h2>
           <div class="section-actions">
             <input type="text" id="secrets-search" class="search-input" placeholder="🔍 Search secrets..." oninput="filterSecrets()" />
-            <button id="btn-delete-selected" class="btn btn-danger btn-sm hidden" onclick="deleteSelectedSecrets()">🗑 Delete (<span id="selected-count">0</span>)</button>
+            <span id="table-stats" class="badge badge-blue" style="font-size:13px; font-weight:600; padding:6px 12px; border: 1px solid var(--accent-blue);">0/0</span>
+            <button id="btn-delete-selected" class="btn btn-danger btn-sm hidden" onclick="deleteSelectedSecrets()">🗑 Delete</button>
             <input type="file" id="import-json-file" accept=".json" style="display:none;" onchange="importSecrets(event)">
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-json-file').click()">⬆️ Import</button>
             <button class="btn btn-secondary btn-sm" onclick="exportSecrets()">⬇️ Export</button>
@@ -206,6 +207,7 @@
                 <th style="cursor:pointer" onclick="sortSecrets('name')">Name / ID <span id="sort-name" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('host')">Host <span id="sort-host" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('port')">Port <span id="sort-port" style="font-size:10px; opacity:0.5">↕️</span></th>
+                <th style="cursor:pointer" onclick="sortSecrets('description')">Description <span id="sort-description" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('username')">Username <span id="sort-username" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th style="cursor:pointer" onclick="sortSecrets('auth_type')">Auth Type <span id="sort-auth_type" style="font-size:10px; opacity:0.5">↕️</span></th>
                 <th>Tags</th>
@@ -216,6 +218,7 @@
                 <th><input type="text" id="filter-name" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th><input type="text" id="filter-host" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th><input type="text" id="filter-port" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
+                <th><input type="text" id="filter-desc" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th><input type="text" id="filter-user" class="search-input" style="width:100%; padding: 4px; font-size:12px;" placeholder="Filter..." oninput="filterSecrets()" /></th>
                 <th>
                   <select id="filter-auth" class="form-control" style="width:100%; padding: 4px; font-size:12px; height: 26px; background-color: #1a1a24; color: #fff; border: 1px solid #333;" onchange="filterSecrets()">
@@ -690,6 +693,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
-  <script src="/static/js/app.js?v=1.4"></script>
+  <script src="/static/js/app.js?v=1.8"></script>
 </body>
 </html>

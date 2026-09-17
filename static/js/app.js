@@ -391,10 +391,10 @@ window.renderSidebarFolders = function(secrets) {
 
 async function loadSecrets() {
   const tbody = document.getElementById('secrets-body');
-  tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Loading...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Loading...</td></tr>';
 
   const res = await apiFetch('/secrets');
-  if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Failed to load</td></tr>'; return; }
+  if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Failed to load</td></tr>'; return; }
   const data = await res.json();
   allSecrets = data.secrets || [];
   renderSecrets(allSecrets);
@@ -413,7 +413,7 @@ window.toggleFolder = function(folderId) {
 function renderSecrets(secrets) {
   const tbody = document.getElementById('secrets-body');
   if (secrets.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">No secrets stored yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">No secrets stored yet</td></tr>';
     return;
   }
   
@@ -439,7 +439,7 @@ function renderSecrets(secrets) {
     const folderId = `f${idx}`;
     html += `
       <tr class="folder-header" onclick="toggleFolder('${folderId}')" style="cursor:pointer; background:rgba(255,255,255,0.03); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05)">
-        <td colspan="8">
+        <td colspan="9">
           <span id="f-icon-${folderId}" style="display:inline-block; width:20px; font-size:12px; transition:0.2s">▼</span>
           📁 <strong>${f}</strong> <span style="color:var(--text-muted);font-size:12px;margin-left:6px">(${grouped[f].length})</span>
         </td>
@@ -452,6 +452,7 @@ function renderSecrets(secrets) {
           <td><strong>${s.os_type === 'windows' ? '🪟' : '🐧'} ${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
           <td class="mono">${s.host}</td>
           <td>${s.port}</td>
+          <td><span style="display:block; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.description || ''}">${s.description || '—'}</span></td>
           <td class="mono">${s.username}</td>
           <td><span class="badge ${authTypeBadge(s.auth_type)}">${s.auth_type}</span></td>
           <td><div class="tags-list">${(s.tags || []).map(t => `<span class="badge badge-gray">${t}</span>`).join('')}</div></td>
@@ -554,12 +555,25 @@ function updateSelectedCount() {
   
   if (checked.length > 0) {
     if (btn) btn.classList.remove('hidden');
-    if (count) count.textContent = checked.length;
   } else {
     if (btn) btn.classList.add('hidden');
   }
   
   const allCheckboxes = document.querySelectorAll('.secret-checkbox');
+  const stats = document.getElementById('table-stats');
+  if (stats) {
+    stats.textContent = `${checked.length}/${allCheckboxes.length}`;
+    if (checked.length > 0) {
+      stats.className = 'badge badge-amber';
+      stats.style.borderColor = 'var(--accent-amber)';
+      stats.style.color = '#fff';
+    } else {
+      stats.className = 'badge badge-blue';
+      stats.style.borderColor = 'var(--accent-blue)';
+      stats.style.color = 'var(--accent-blue)';
+    }
+  }
+  
   const selectAll = document.getElementById('select-all-secrets');
   if (selectAll) {
     if (allCheckboxes.length > 0 && checked.length === allCheckboxes.length) {
@@ -653,20 +667,22 @@ function filterSecrets() {
   const fName = document.getElementById('filter-name').value.toLowerCase();
   const fHost = document.getElementById('filter-host').value.toLowerCase();
   const fPort = document.getElementById('filter-port').value.toLowerCase();
+  const fDesc = document.getElementById('filter-desc').value.toLowerCase();
   const fUser = document.getElementById('filter-user').value.toLowerCase();
   const fAuth = document.getElementById('filter-auth').value.toLowerCase();
   const fTags = document.getElementById('filter-tags').value.toLowerCase();
 
   renderSecrets(allSecrets.filter(s => {
-    const matchGlobal = (s._id + (s.name||'') + s.host + s.username + (s.tags || []).join(' ')).toLowerCase().includes(q);
+    const matchGlobal = (s._id + (s.name||'') + s.host + s.username + (s.description||'') + (s.tags || []).join(' ')).toLowerCase().includes(q);
     const matchName = (s._id + (s.name||'')).toLowerCase().includes(fName);
     const matchHost = (s.host||'').toLowerCase().includes(fHost);
     const matchPort = String(s.port||'').toLowerCase().includes(fPort);
+    const matchDesc = (s.description||'').toLowerCase().includes(fDesc);
     const matchUser = (s.username||'').toLowerCase().includes(fUser);
     const matchAuth = fAuth === '' || (s.auth_type||'').toLowerCase() === fAuth;
     const matchTags = (s.tags || []).join(' ').toLowerCase().includes(fTags);
     
-    return matchGlobal && matchName && matchHost && matchPort && matchUser && matchAuth && matchTags;
+    return matchGlobal && matchName && matchHost && matchPort && matchDesc && matchUser && matchAuth && matchTags;
   }));
 }
 

@@ -130,6 +130,7 @@ function navigate(page) {
     users: 'User Management',
     import: 'Import KeePass (.kdbx)',
     audit: 'Audit Logs',
+    other_secrets: 'Other Credentials',
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   currentPage = page;
@@ -141,6 +142,7 @@ function navigate(page) {
     apikeys: loadAPIKeys,
     users: loadUsers,
     import: loadImportJobs,
+    other_secrets: loadOtherSecrets,
     audit: () => { auditPage = 1; loadAuditLogs(); },
   };
   if (loaders[page]) loaders[page]();
@@ -759,8 +761,10 @@ async function viewSecret(slug) {
   if (data.auth_type === 'password' || data.auth_type === 'token') {
     document.getElementById('vs-password-group').style.display = 'block';
     document.getElementById('vs-ssh-group').style.display = 'none';
+    const rawVal = data.auth_type === 'token' ? data.token : data.password;
     document.getElementById('vs-secret-label').textContent = data.auth_type === 'token' ? 'Token' : 'Password';
-    document.getElementById('vs-secret-val').textContent = data.auth_type === 'token' ? data.token : data.password;
+    document.getElementById('vs-secret-val').dataset.raw = rawVal || '';
+    document.getElementById('vs-secret-val').textContent = rawVal ? '••••••••' : '—';
     
     // Quick connect command
     const portFlag = data.port && data.port !== 22 ? ` -p ${data.port}` : '';

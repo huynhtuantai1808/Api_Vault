@@ -8,5 +8,6 @@ from .ssh import ssh_bp
 from .admin import admin_bp
 from .import_kdbx import import_bp
 from .totp import totp_bp
+from .other_secrets import other_secrets_bp
 
-__all__ = ["auth_bp", "api_keys_bp", "secrets_bp", "ssh_bp", "admin_bp", "import_bp", "totp_bp"]
+__all__ = ["auth_bp", "api_keys_bp", "secrets_bp", "ssh_bp", "admin_bp", "import_bp", "totp_bp", "other_secrets_bp"]

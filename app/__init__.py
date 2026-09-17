@@ -89,14 +89,15 @@ def create_app(config=None):
     Swagger(app, template=SWAGGER_TEMPLATE, config=SWAGGER_CONFIG)
 
     # Register blueprints
-    from app.routes import auth_bp, api_keys_bp, secrets_bp, ssh_bp, admin_bp, import_bp, totp_bp
+    from app.routes import auth_bp, api_keys_bp, secrets_bp, ssh_bp, admin_bp, import_bp, totp_bp, other_secrets_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_keys_bp)
-    app.register_blueprint(secrets_bp)
+    app.register_blueprint(secrets_bp, url_prefix="/api/v1/secrets")
+    app.register_blueprint(other_secrets_bp, url_prefix="/api/v1/other_secrets")
     app.register_blueprint(ssh_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(import_bp)
-    app.register_blueprint(totp_bp)
+    app.register_blueprint(totp_bp, url_prefix="/api/v1/totp")
     
     # Import socket events to register them
     import app.sockets as _sockets

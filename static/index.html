@@ -71,6 +71,9 @@
         <ul id="sidebar-folders" class="folder-tree">
           <!-- Dynamically populated by JS -->
         </ul>
+        <a href="#" class="nav-item" data-page="other_secrets" onclick="navigate('other_secrets')">
+          <span class="nav-icon">🌐</span><span class="nav-label">Other Credentials</span>
+        </a>
         <a href="#" class="nav-item" data-page="totp" onclick="navigate('totp')">
           <span class="nav-icon">⏱️</span><span class="nav-label">Authenticator</span>
         </a>
@@ -435,6 +438,46 @@
         </div>
       </div>
 
+      <!-- Other Secrets Page -->
+      <div id="page-other_secrets" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">Other Credentials</h2>
+          <div class="section-actions">
+            <input type="text" id="os-search" class="search-input" placeholder="Search..." oninput="debounce(loadOtherSecrets, 300)()" />
+            <button class="btn btn-primary" onclick="openCreateOtherSecretModal()">➕ Add Credential</button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <select id="os-type-filter" class="form-control-sm" onchange="loadOtherSecrets()">
+            <option value="">All Types</option>
+            <option value="web">Web Login</option>
+            <option value="database">Database</option>
+            <option value="ftp">FTP</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div class="table-container" style="margin-top:16px;">
+          <table class="data-table" id="other-secrets-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Name</th>
+                <th>Target / URL</th>
+                <th>Username</th>
+                <th>Tags</th>
+                <th style="width:140px;text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="other-secrets-body">
+              <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Audit Logs Page -->
       <div id="page-audit" class="page hidden">
         <div class="section-header">
@@ -548,6 +591,73 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="closeModal('modal-create-secret')">Cancel</button>
         <button class="btn btn-primary" onclick="createSecret()">Save Secret</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Other Secret Modal -->
+  <div id="modal-create-other-secret" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="os-modal-title">Add Credential</h3>
+        <button class="modal-close" onclick="closeModal('modal-create-other-secret')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Name *</label>
+            <input id="os-name" type="text" class="form-control" placeholder="Production DB" />
+          </div>
+          <div class="form-group">
+            <label>Type *</label>
+            <select id="os-type" class="form-control">
+              <option value="web">Web Login</option>
+              <option value="database">Database</option>
+              <option value="ftp">FTP</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Target / URL</label>
+          <input id="os-target" type="text" class="form-control" placeholder="https://admin.example.com" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username</label>
+            <input id="os-username" type="text" class="form-control" placeholder="admin" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input id="os-password" type="password" class="form-control" placeholder="••••••••" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>TOTP Authenticator</label>
+          <select id="os-totp" class="form-control">
+            <option value="">-- None --</option>
+            <!-- Populated by JS -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input id="os-description" type="text" class="form-control" placeholder="Details about this credential" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Folder / Group</label>
+            <input id="os-folder" type="text" class="form-control" list="os-folder-list" placeholder="e.g. Databases" />
+            <datalist id="os-folder-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Tags (comma-separated)</label>
+            <input id="os-tags" type="text" class="form-control" placeholder="db, prod" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('modal-create-other-secret')">Cancel</button>
+        <button id="os-save-btn" class="btn btn-primary">Save Credential</button>
       </div>
     </div>
   </div>
@@ -689,7 +799,7 @@
           <label id="vs-secret-label">Password / Token</label>
           <div class="copy-field">
             <code id="vs-secret-val" class="key-display"></code>
-            <button class="btn btn-ghost btn-sm" onclick="copyText(encodeURIComponent(document.getElementById('vs-secret-val').textContent))">📋 Copy</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyText(encodeURIComponent(document.getElementById('vs-secret-val').dataset.raw || document.getElementById('vs-secret-val').textContent))">📋 Copy</button>
           </div>
         </div>
         
@@ -755,5 +865,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
   <script src="/static/js/app.js?v=1.9"></script>
   <script src="/static/js/totp.js?v=1.0"></script>
+  <script src="/static/js/other_secrets.js?v=1.0"></script>
 </body>
 </html>

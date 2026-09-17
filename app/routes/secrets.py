@@ -268,11 +268,21 @@ def get_secret(slug: str):
     # Compute live TOTP code if secret exists and is revealed
     if reveal and result.get("totp_secret"):
         import pyotp
+        secret_val = result["totp_secret"]
+        # If it's a UUID (TOTP ID), fetch the actual secret
+        if "-" in secret_val:
+            base_path = _get_user_vault_path()
+            username = base_path.split("/")[-1]
+            totp_path = f"totp/{username}/{secret_val}"
+            totp_data = VaultClient.kv_read(totp_path)
+            if totp_data and totp_data.get("secret_key"):
+                secret_val = totp_data["secret_key"]
+                result["totp_secret"] = secret_val  # Reveal the actual secret to frontend
+
         try:
-            result["totp_code"] = pyotp.TOTP(result["totp_secret"]).now()
+            result["totp_code"] = pyotp.TOTP(secret_val).now()
         except Exception:
             result["totp_code"] = "INVALID_SECRET"
-            
     return jsonify(result), 200
 
 

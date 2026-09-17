@@ -550,13 +550,15 @@ function toggleSelectAll(checkbox) {
 
 function updateSelectedCount() {
   const checked = document.querySelectorAll('.secret-checkbox:checked');
-  const btn = document.getElementById('btn-delete-selected');
-  const count = document.getElementById('selected-count');
+  const btnDelete = document.getElementById('btn-delete-selected');
+  const btnMultiExec = document.getElementById('btn-multiexec-selected');
   
   if (checked.length > 0) {
-    if (btn) btn.classList.remove('hidden');
+    if (btnDelete) btnDelete.classList.remove('hidden');
+    if (btnMultiExec) btnMultiExec.classList.remove('hidden');
   } else {
-    if (btn) btn.classList.add('hidden');
+    if (btnDelete) btnDelete.classList.add('hidden');
+    if (btnMultiExec) btnMultiExec.classList.add('hidden');
   }
   
   const allCheckboxes = document.querySelectorAll('.secret-checkbox');
@@ -582,6 +584,13 @@ function updateSelectedCount() {
       selectAll.checked = false;
     }
   }
+}
+
+function openMultiExec() {
+  const checked = document.querySelectorAll('.secret-checkbox:checked');
+  if (checked.length === 0) return;
+  const slugs = Array.from(checked).map(cb => cb.value);
+  window.open(`/static/multiexec.html?slugs=${slugs.join(',')}`, '_blank');
 }
 
 async function deleteSelectedSecrets() {

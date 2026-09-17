@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MultiExec - API Vault</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0d0d12;
+      color: #fff;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+    #header {
+      background: #11111a;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid #2a2a35;
+    }
+    .broadcast-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .broadcast-input {
+      flex: 1;
+      background: #1a1a24;
+      border: 1px solid #333;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      outline: none;
+    }
+    .broadcast-input:focus {
+      border-color: #6366f1;
+    }
+    .btn {
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn:hover { background: #4f46e5; }
+    
+    .btn-toggle {
+      background: #374151;
+      color: #d1d5db;
+    }
+    .btn-toggle.active {
+      background: #10b981;
+      color: #fff;
+    }
+    .btn-paste {
+      background: #f59e0b;
+      color: #fff;
+    }
+    .btn-paste:hover { background: #d97706; }
+    
+    #grid-container {
+      flex: 1;
+      display: grid;
+      gap: 2px;
+      background: #2a2a35; /* grid lines */
+      overflow: hidden;
+    }
+    
+    .term-wrapper {
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .term-header {
+      background: #1a1a24;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #a1a1aa;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #2a2a35;
+    }
+    .term-header strong {
+      color: #4ade80;
+    }
+    .term-container {
+      flex: 1;
+      width: 100%;
+      overflow: hidden;
+      padding: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="header">
+    <div style="font-weight:700; color:#fff; display:flex; align-items:center; gap:8px;">
+      🖥️ MultiExec
+    </div>
+    
+    <!-- Controls -->
+    <div style="display:flex; gap:8px; align-items:center; margin-left: 20px;">
+      <button id="btn-toggle-multi" class="btn btn-toggle" onclick="toggleMultiExec()">
+        🔗 Multi-Execution Mode: OFF
+      </button>
+      <button id="btn-multi-paste" class="btn btn-paste" style="display:none;" onclick="multiPaste()">
+        📋 Multi-Paste
+      </button>
+    </div>
+    
+    <div class="broadcast-container" style="margin-left:auto;">
+      <input type="text" id="broadcast-input" class="broadcast-input" placeholder="Broadcast command... (Enter to send)" />
+      <button class="btn" onclick="sendBroadcast()">Send</button>
+    </div>
+  </div>
+  
+  <div id="grid-container"></div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  
+  <script>
+    const token = localStorage.getItem('vault_token');
+    if (!token) {
+      document.body.innerHTML = '<div style="padding:20px;color:red;">Error: No authentication token found. Please login on the dashboard first.</div>';
+      throw new Error("No token");
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const slugsParam = urlParams.get('slugs');
+    const slugs = slugsParam ? slugsParam.split(',').map(s => s.trim()).filter(s => s) : [];
+
+    if (slugs.length === 0) {
+      document.body.innerHTML = '<div style="padding:20px;color:red;">Error: No servers selected for MultiExec.</div>';
+      throw new Error("No slugs");
+    }
+
+    const gridContainer = document.getElementById('grid-container');
+    let multiExecMode = false;
+    
+    // Auto-calculate grid columns based on number of servers
+    const count = slugs.length;
+    let cols = 1;
+    if (count > 1) cols = 2;
+    if (count > 4) cols = 3;
+    if (count > 9) cols = 4;
+    gridContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    gridContainer.style.gridTemplateRows = `repeat(${Math.ceil(count / cols)}, 1fr)`;
+
+    // Store references to all sockets and terms
+    const sessions = [];
+
+    slugs.forEach((slug, index) => {
+      // 1. Create DOM structure
+      const wrapper = document.createElement('div');
+      wrapper.className = 'term-wrapper';
+      
+      const header = document.createElement('div');
+      header.className = 'term-header';
+      header.innerHTML = `<span>SSH: <strong>${slug}</strong></span> <span id="status-${index}" style="color:#a1a1aa;">Connecting...</span>`;
+      
+      const termDiv = document.createElement('div');
+      termDiv.className = 'term-container';
+      
+      wrapper.appendChild(header);
+      wrapper.appendChild(termDiv);
+      gridContainer.appendChild(wrapper);
+
+      // 2. Setup Xterm
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'Consolas, "Courier New", monospace',
+        fontSize: 13,
+        theme: { background: '#000000', foreground: '#f0f0f0' }
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(termDiv);
+      fitAddon.fit();
+
+      // 3. Setup Socket.IO (forceNew: true is REQUIRED for multiple distinct SSH connections)
+      const socket = io({
+        auth: { token: token },
+        forceNew: true 
+      });
+
+      sessions.push({ slug, term, fitAddon, socket });
+
+      socket.on("connect", () => {
+        document.getElementById(`status-${index}`).textContent = "Connected";
+        document.getElementById(`status-${index}`).style.color = "#4ade80";
+        term.write(`\r\n\x1b[32mConnected to API Vault Gateway.\x1b[0m\r\nStarting SSH session to ${slug}...\r\n`);
+        socket.emit("start_terminal", { token: token, slug: slug, cols: term.cols, rows: term.rows });
+      });
+
+      socket.on("connect_error", (err) => {
+        document.getElementById(`status-${index}`).textContent = "Error";
+        document.getElementById(`status-${index}`).style.color = "#f87171";
+        term.write(`\r\n\x1b[31mConnection Error: ${err.message}\x1b[0m\r\n`);
+      });
+
+      socket.on("terminal_output", (data) => {
+        term.write(data);
+      });
+
+      socket.on("disconnect", () => {
+        document.getElementById(`status-${index}`).textContent = "Disconnected";
+        document.getElementById(`status-${index}`).style.color = "#f87171";
+        term.write("\r\n\x1b[31mDisconnected from gateway.\x1b[0m\r\n");
+      });
+
+      term.onData(data => {
+        if (multiExecMode) {
+          // Send to ALL sessions
+          sessions.forEach(session => {
+            if (session.socket && session.socket.connected) {
+              session.socket.emit("terminal_input", data);
+            }
+          });
+        } else {
+          // Send only to THIS session
+          socket.emit("terminal_input", data);
+        }
+      });
+    });
+
+    // Resize handling for all terminals
+    window.addEventListener('resize', () => {
+      sessions.forEach(session => {
+        session.fitAddon.fit();
+        if (session.socket && session.socket.connected) {
+          session.socket.emit("terminal_resize", { cols: session.term.cols, rows: session.term.rows });
+        }
+      });
+    });
+
+    // Broadcast logic
+    const bInput = document.getElementById('broadcast-input');
+    
+    function sendBroadcast() {
+      const text = bInput.value;
+      if (!text) return;
+      // Send string + newline to emulate pressing enter
+      const data = text + '\r'; 
+      
+      sessions.forEach(session => {
+        if (session.socket && session.socket.connected) {
+          session.socket.emit("terminal_input", data);
+        }
+      });
+      bInput.value = '';
+    }
+
+    bInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        sendBroadcast();
+      }
+    });
+
+    // MultiExec Mode Toggle
+    function toggleMultiExec() {
+      multiExecMode = !multiExecMode;
+      const btn = document.getElementById('btn-toggle-multi');
+      const btnPaste = document.getElementById('btn-multi-paste');
+      
+      if (multiExecMode) {
+        btn.classList.add('active');
+        btn.innerHTML = '🔗 Multi-Execution Mode: ON';
+        btnPaste.style.display = 'inline-block';
+      } else {
+        btn.classList.remove('active');
+        btn.innerHTML = '🔗 Multi-Execution Mode: OFF';
+        btnPaste.style.display = 'none';
+      }
+    }
+
+    // Multi-Paste Logic
+    async function multiPaste() {
+      if (!multiExecMode) return;
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          sessions.forEach(session => {
+            if (session.socket && session.socket.connected) {
+              session.socket.emit("terminal_input", text);
+            }
+          });
+        }
+      } catch (err) {
+        alert("Failed to read clipboard. Please ensure browser permissions allow clipboard access.");
+        console.error("Clipboard error:", err);
+      }
+    }
+
+    // Focus broadcast input on load
+    window.onload = () => {
+      setTimeout(() => bInput.focus(), 500);
+    };
+
+  </script>
+</body>
+</html>

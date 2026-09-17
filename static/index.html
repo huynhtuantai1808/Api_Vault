@@ -71,6 +71,9 @@
         <ul id="sidebar-folders" class="folder-tree">
           <!-- Dynamically populated by JS -->
         </ul>
+        <a href="#" class="nav-item" data-page="totp" onclick="navigate('totp')">
+          <span class="nav-icon">⏱️</span><span class="nav-label">Authenticator</span>
+        </a>
         <a href="#" class="nav-item" data-page="ssh" onclick="navigate('ssh')">
           <span class="nav-icon">💻</span><span class="nav-label">SSH Certificates</span>
         </a>
@@ -185,6 +188,19 @@
         </div>
       </div>
 
+      <!-- TOTP Page -->
+      <div id="page-totp" class="page hidden">
+        <div class="section-header">
+          <h2 class="section-title">TOTP Authenticator</h2>
+          <div class="section-actions">
+            <input type="text" id="totp-search" class="search-input" placeholder="🔍 Search credentials..." oninput="filterTotp()" />
+            <button class="btn btn-primary btn-sm" onclick="openAddTotpModal()">+ Add TOTP</button>
+          </div>
+        </div>
+        <div id="totp-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:20px; padding:10px 0;">
+        </div>
+      </div>
+
       <!-- Secrets Page -->
       <div id="page-secrets" class="page hidden">
         <div class="section-header">
@@ -193,6 +209,7 @@
             <input type="text" id="secrets-search" class="search-input" placeholder="🔍 Search secrets..." oninput="filterSecrets()" />
             <span id="table-stats" class="badge badge-blue" style="font-size:13px; font-weight:600; padding:6px 12px; border: 1px solid var(--accent-blue);">0/0</span>
             <button id="btn-delete-selected" class="btn btn-danger btn-sm hidden" onclick="deleteSelectedSecrets()">🗑 Delete</button>
+            <button id="btn-multiexec-selected" class="btn btn-primary btn-sm hidden" style="background:var(--accent-indigo);border-color:var(--accent-indigo);" onclick="openMultiExec()">🖥️ MultiExec</button>
             <input type="file" id="import-json-file" accept=".json" style="display:none;" onchange="importSecrets(event)">
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-json-file').click()">⬆️ Import</button>
             <button class="btn btn-secondary btn-sm" onclick="exportSecrets()">⬇️ Export</button>
@@ -506,13 +523,11 @@
           <input id="cs-token" type="text" class="form-control" placeholder="token..." />
         </div>
         <div id="auth-field-totp" class="form-group">
-          <label style="display: flex; justify-content: space-between; align-items: center;">
-            TOTP Secret (Base32)
-            <button class="btn btn-sm" style="padding: 2px 8px; font-size: 12px; border: 1px solid #333;" onclick="document.getElementById('cs-qr-upload').click()">📷 Upload QR</button>
-          </label>
-          <input id="cs-totp" type="text" class="form-control" placeholder="JBSWY3DPEHPK3PXP" />
-          <input type="file" id="cs-qr-upload" accept="image/*" class="hidden" onchange="handleQRUpload(event)" />
-          <canvas id="qr-canvas" class="hidden"></canvas>
+          <label>TOTP Authenticator</label>
+          <select id="cs-totp" class="form-control">
+            <option value="">-- None --</option>
+            <!-- Populated by JS from totp credentials -->
+          </select>
         </div>
         <div class="form-group">
           <label>Description</label>
@@ -587,6 +602,51 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="closeModal('modal-show-key')">I've saved it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add TOTP Modal -->
+  <div id="modal-add-totp" class="modal-overlay hidden">
+    <div class="modal" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3>Add TOTP Credential</h3>
+        <button class="modal-close" onclick="closeModal('modal-add-totp')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs" style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+          <button class="btn btn-ghost btn-sm active" id="totp-tab-manual" onclick="switchTotpTab('manual')">Manual Entry</button>
+          <button class="btn btn-ghost btn-sm" id="totp-tab-qr" onclick="switchTotpTab('qr')">Scan QR Image</button>
+        </div>
+        
+        <div id="totp-manual-form">
+          <div class="form-group">
+            <label>Issuer (e.g. Google, GitHub)</label>
+            <input type="text" id="totp-issuer" class="form-control" placeholder="Company Name" />
+          </div>
+          <div class="form-group">
+            <label>Account Name</label>
+            <input type="text" id="totp-name" class="form-control" placeholder="user@example.com" />
+          </div>
+          <div class="form-group">
+            <label>Secret Key (Base32)</label>
+            <input type="text" id="totp-secret" class="form-control" placeholder="JBSWY3DPEHPK3PXP" />
+          </div>
+        </div>
+        
+        <div id="totp-qr-form" class="hidden">
+          <div class="form-group" style="text-align:center; padding: 30px; border: 2px dashed var(--border); border-radius: 8px;">
+            <p style="margin-bottom:15px; color:var(--text-muted);">Select a QR code image to decode</p>
+            <input type="file" id="totp-qr-file" accept="image/*" style="display:none;" onchange="decodeTotpQr(event)">
+            <button class="btn btn-secondary" onclick="document.getElementById('totp-qr-file').click()">📸 Upload QR Image</button>
+            <canvas id="totp-qr-canvas" style="display:none;"></canvas>
+            <p id="totp-qr-result" style="margin-top:15px; color:var(--accent-green); font-size:13px; font-weight:600;"></p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-add-totp')">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-totp" onclick="saveTotp()">Save</button>
       </div>
     </div>
   </div>
@@ -693,6 +753,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
-  <script src="/static/js/app.js?v=1.8"></script>
+  <script src="/static/js/app.js?v=1.9"></script>
+  <script src="/static/js/totp.js?v=1.0"></script>
 </body>
 </html>

@@ -110,6 +110,10 @@ def on_start_terminal(data):
                                 elif 'verification' in pr_lower or 'code' in pr_lower or 'otp' in pr_lower or 'token' in pr_lower:
                                     totp_sec = secret.get("totp_secret")
                                     if totp_sec:
+                                        if "-" in totp_sec:
+                                            totp_data = VaultClient.kv_read(f"totp/{owner}/{totp_sec}")
+                                            if totp_data and totp_data.get("secret_key"):
+                                                totp_sec = totp_data["secret_key"]
                                         import pyotp
                                         answers.append(pyotp.TOTP(totp_sec).now())
                                     else:

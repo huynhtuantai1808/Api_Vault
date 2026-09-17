@@ -391,13 +391,15 @@ window.renderSidebarFolders = function(secrets) {
 
 async function loadSecrets() {
   const tbody = document.getElementById('secrets-body');
-  tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Loading...</td></tr>';
+  if (allSecrets.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Loading...</td></tr>';
+  }
 
   const res = await apiFetch('/secrets');
   if (!res?.ok) { tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">Failed to load</td></tr>'; return; }
   const data = await res.json();
   allSecrets = data.secrets || [];
-  renderSecrets(allSecrets);
+  filterSecrets();
   renderSidebarFolders(allSecrets);
 }
 
@@ -412,6 +414,22 @@ window.toggleFolder = function(folderId) {
 
 function renderSecrets(secrets) {
   const tbody = document.getElementById('secrets-body');
+  
+  // Save current UI state
+  const collapsedFolders = new Set();
+  document.querySelectorAll('.folder-header').forEach(header => {
+    const textContent = header.innerText || '';
+    const match = textContent.match(/📁\s*(.*?)\s*\(/);
+    if (match) {
+      const folderName = match[1].trim();
+      const iconSpan = header.querySelector('span[id^="f-icon-"]');
+      if (iconSpan && iconSpan.textContent.includes('▶')) {
+        collapsedFolders.add(folderName);
+      }
+    }
+  });
+  const selectedIds = new Set(Array.from(document.querySelectorAll('.secret-checkbox:checked')).map(cb => cb.value));
+
   if (secrets.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">No secrets stored yet</td></tr>';
     return;
@@ -437,18 +455,22 @@ function renderSecrets(secrets) {
   let html = '';
   folders.forEach((f, idx) => {
     const folderId = `f${idx}`;
+    const isCollapsed = collapsedFolders.has(f);
+    const icon = isCollapsed ? '▶' : '▼';
+    
     html += `
       <tr class="folder-header" onclick="toggleFolder('${folderId}')" style="cursor:pointer; background:rgba(255,255,255,0.03); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05)">
         <td colspan="9">
-          <span id="f-icon-${folderId}" style="display:inline-block; width:20px; font-size:12px; transition:0.2s">▼</span>
+          <span id="f-icon-${folderId}" style="display:inline-block; width:20px; font-size:12px; transition:0.2s">${icon}</span>
           📁 <strong>${f}</strong> <span style="color:var(--text-muted);font-size:12px;margin-left:6px">(${grouped[f].length})</span>
         </td>
       </tr>
     `;
     grouped[f].forEach(s => {
-      html += `
-        <tr class="f-row-${folderId}" ondblclick="viewSecret('${s._id}')" title="Double-click to view" style="cursor: pointer;">
-          <td onclick="event.stopPropagation()"><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()"></td>
+        const isChecked = selectedIds.has(s._id) ? 'checked' : '';
+        html += `
+        <tr class="f-row-${folderId} ${isCollapsed ? 'hidden' : ''}" ondblclick="viewSecret('${s._id}')" title="Double-click to view" style="cursor: pointer;">
+          <td onclick="event.stopPropagation()"><input type="checkbox" class="secret-checkbox" value="${s._id}" onchange="updateSelectedCount()" ${isChecked}></td>
           <td><strong>${s.os_type === 'windows' ? '🪟' : '🐧'} ${s.name || s._id}</strong><br><span class="mono" style="font-size:11px;color:var(--text-muted)">${s._id}</span></td>
           <td class="mono">${s.host}</td>
           <td>${s.port}</td>

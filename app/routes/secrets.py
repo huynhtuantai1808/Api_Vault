@@ -277,7 +277,7 @@ def get_secret(slug: str):
             totp_data = VaultClient.kv_read(totp_path)
             if totp_data and totp_data.get("secret_key"):
                 secret_val = totp_data["secret_key"]
-                result["totp_secret"] = secret_val  # Reveal the actual secret to frontend
+                # DO NOT overwrite result["totp_secret"], we need the UUID for the frontend dropdown
 
         try:
             result["totp_code"] = pyotp.TOTP(secret_val).now()
@@ -434,6 +434,9 @@ def create_secret():
         return jsonify({"error": f"Secret '{slug}' already exists. Use PUT to update."}), 409
 
     now = datetime.now(timezone.utc).isoformat()
+    totp_secret_raw = data.get("totp_secret", "")
+    totp_secret = totp_secret_raw if "-" in totp_secret_raw else totp_secret_raw.replace(" ", "").upper()
+
     secret_data = {
         "name": data["name"],
         "host": data["host"],
@@ -443,7 +446,7 @@ def create_secret():
         "password": data.get("password", ""),
         "ssh_private_key": data.get("ssh_private_key", ""),
         "token": data.get("token", ""),
-        "totp_secret": data.get("totp_secret", "").replace(" ", "").upper(),
+        "totp_secret": totp_secret,
         "description": data.get("description", ""),
         "tags": data.get("tags", []),
         "created_by": g.current_user.username if g.current_user else "api_key",
@@ -500,7 +503,8 @@ def update_secret(slug: str):
     # Merge update (preserve fields not in request)
     updated = {**existing, **data}
     if "totp_secret" in data:
-        updated["totp_secret"] = data["totp_secret"].replace(" ", "").upper()
+        t_sec = data["totp_secret"]
+        updated["totp_secret"] = t_sec if "-" in t_sec else t_sec.replace(" ", "").upper()
         
     updated["updated_at"] = datetime.now(timezone.utc).isoformat()
 

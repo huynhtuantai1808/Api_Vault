@@ -86,6 +86,8 @@ def on_start_terminal(data):
         
     emit("terminal_output", f"Connecting to {username}@{host}:{port}...\r\n")
     
+    app = current_app._get_current_object()
+    
     # 3. Establish SSH Connection
     class TOTPSSHClient(paramiko.SSHClient):
         def _auth(self, username, password, pkey, *args, **kwargs):
@@ -103,23 +105,24 @@ def on_start_terminal(data):
                         # Fallback to interactive
                         def handler(title, instructions, prompt_list):
                             answers = []
-                            for pr, show_input in prompt_list:
-                                pr_lower = pr.lower()
-                                if 'password' in pr_lower:
-                                    answers.append(password)
-                                elif 'verification' in pr_lower or 'code' in pr_lower or 'otp' in pr_lower or 'token' in pr_lower:
-                                    totp_sec = secret.get("totp_secret")
-                                    if totp_sec:
-                                        if "-" in totp_sec:
-                                            totp_data = VaultClient.kv_read(f"totp/{owner}/{totp_sec}")
-                                            if totp_data and totp_data.get("secret_key"):
-                                                totp_sec = totp_data["secret_key"]
-                                        import pyotp
-                                        answers.append(pyotp.TOTP(totp_sec).now())
+                            with app.app_context():
+                                for pr, show_input in prompt_list:
+                                    pr_lower = pr.lower()
+                                    if 'password' in pr_lower:
+                                        answers.append(password)
+                                    elif 'verification' in pr_lower or 'code' in pr_lower or 'otp' in pr_lower or 'token' in pr_lower:
+                                        totp_sec = secret.get("totp_secret")
+                                        if totp_sec:
+                                            if "-" in totp_sec:
+                                                totp_data = VaultClient.kv_read(f"totp/{owner}/{totp_sec}")
+                                                if totp_data and totp_data.get("secret_key"):
+                                                    totp_sec = totp_data["secret_key"]
+                                            import pyotp
+                                            answers.append(pyotp.TOTP(totp_sec).now())
+                                        else:
+                                            answers.append("")
                                     else:
-                                        answers.append("")
-                                else:
-                                    answers.append(password)
+                                        answers.append(password)
                             return answers
                         self._transport.auth_interactive(username, handler)
                         return

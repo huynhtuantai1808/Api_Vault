@@ -25,30 +25,10 @@ def proxy_guac_output(sid, guac_client):
             chunk = guac_client.read(4096)
             if not chunk:
                 break
-            buf += chunk
-            # Auto-reply to 'sync' instructions immediately without round-trip to JS
-            # This prevents "User is not responding" timeout
-            while b";" in buf:
-                semi = buf.index(b";")
-                instr_bytes = buf[:semi+1]
-                buf = buf[semi+1:]
-                instr_str = instr_bytes.decode("utf-8", "replace")
-                # Quick parse opcode
-                try:
-                    dot = instr_str.index(".")
-                    op_len = int(instr_str[:dot])
-                    opcode = instr_str[dot+1:dot+1+op_len]
-                    if opcode == "sync":
-                        # Extract timestamp and reply immediately
-                        rest = instr_str[dot+1+op_len+1:]  # skip opcode and comma
-                        tdot = rest.index(".")
-                        ts_len = int(rest[:tdot])
-                        ts_val = rest[tdot+1:tdot+1+ts_len]
-                        sync_reply = f"4.sync,{len(ts_val)}.{ts_val};"
-                        guac_client.write(sync_reply)
-                except Exception:
-                    pass
-                socketio.emit("guac_instruction", instr_bytes, to=sid)
+            # Debug: log if it contains sync
+            if b"sync," in chunk:
+                print(f"[GUACD OUTPUT]: Found sync in chunk of size {len(chunk)}")
+            socketio.emit("guac_instruction", chunk, to=sid)
             socketio.sleep(0)  # yield to other greenlets
     except Exception as e:
         print(f"Guacamole read error: {e}")
@@ -297,12 +277,13 @@ def on_start_rdp(data):
 @socketio.on("guac_input")
 def on_guac_input(data):
     sid = request.sid
+    print(f"[GUAC INPUT from {sid}]: {data}")
     guac = active_guac_clients.get(sid)
     if guac:
         try:
             guac.write(data)
-        except:
-            pass
+        except Exception as e:
+            print(f"[GUAC INPUT ERROR]: {e}")
 
 @socketio.on("stop_rdp")
 def on_stop_rdp():

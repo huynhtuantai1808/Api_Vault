@@ -35,10 +35,7 @@
       align-items: flex-start;
       justify-content: flex-start;
     }
-    #rdp-canvas {
-      display: block;
-      cursor: default;
-    }
+
     #status-overlay {
       position: fixed;
       top: 50%; left: 50%;
@@ -68,14 +65,14 @@
     </div>
   </div>
   <div id="rdp-wrapper">
-    <canvas id="rdp-canvas"></canvas>
-  </div>
+    </div>
   <div id="status-overlay">
     <div class="spinner"></div>
     <div id="status-msg">Connecting to RDP server...</div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="/static/js/guacamole.min.js"></script>
   <script>
   (function() {
     const token = localStorage.getItem('vault_token');
@@ -87,311 +84,82 @@
       return;
     }
 
-    const canvas = document.getElementById('rdp-canvas');
-    const ctx = canvas.getContext('2d');
     const wrapper = document.getElementById('rdp-wrapper');
     const statusOverlay = document.getElementById('status-overlay');
     const statusText = document.getElementById('status-text');
     const statusMsg = document.getElementById('status-msg');
 
-    // Guacamole layer/surface state
-    // layers: { layerId: { canvas, ctx, width, height } }
-    const layers = {};
-    const imgCache = {}; // streamIndex -> { chunks: [], mimeType }
-    let needsFlush = false;
+    // ── Guacamole Client Setup ──────────────────────────────
+    const tunnel = new Guacamole.Tunnel();
+    tunnel.sendMessage = function(...elements) {
+      const msg = elements.map(a => `${String(a).length}.${a}`).join(',') + ';';
+      socket.emit('guac_input', msg);
+    };
+    tunnel.connect = function(data) { };
+    tunnel.disconnect = function() { socket.emit('stop_rdp'); };
 
-    function requestFlush() {
-      needsFlush = true;
-    }
+    const client = new Guacamole.Client(tunnel);
+    const displayElement = client.getDisplay().getElement();
+    wrapper.appendChild(displayElement);
 
-    function renderLoop() {
-      if (needsFlush && layers[0]) {
-        const l0 = layers[0];
-        if (canvas.width !== l0.canvas.width || canvas.height !== l0.canvas.height) {
-          canvas.width = l0.canvas.width;
-          canvas.height = l0.canvas.height;
-        }
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(l0.canvas, 0, 0);
-        needsFlush = false;
-      }
-      requestAnimationFrame(renderLoop);
-    }
-    requestAnimationFrame(renderLoop);
-
-    let defaultWidth = 1280;
-    let defaultHeight = 800;
-
-    function getLayer(id) {
-      if (!layers[id]) {
-        const c = document.createElement('canvas');
-        c.width = canvas.width; c.height = canvas.height;
-        layers[id] = { canvas: c, ctx: c.getContext('2d') };
-      }
-      return layers[id];
-    }
-
-    function parseColor(r, g, b, a) {
-      return `rgba(${parseInt(r) || 0},${parseInt(g) || 0},${parseInt(b) || 0},${(parseInt(a) || 0)/255})`;
-    }
-
-    // Composite operations map
-    const COMPOSITE_OPS = {
-      '0':  'clear', '1':  'copy', '2':  'destination-atop',
-      '6':  'destination-in', '8':  'destination-out',
-      '9':  'destination-over', '10': 'lighter', '12': 'source-atop',
-      '14': 'source-in', '15': 'source-out', '16': 'source-over',
-      '17': 'xor'
+    // Error handling
+    client.onerror = function(error) {
+      console.error("Guacamole Client Error:", error);
+      statusMsg.innerHTML = `<span style="color:red">RDP Error: ${error.message || "Disconnected"}</span>`;
+      statusOverlay.style.display = 'block';
     };
 
-    function flushToMain() {
-      const l0 = getLayer(0);
-      if (canvas.width !== l0.canvas.width || canvas.height !== l0.canvas.height) {
-        canvas.width = l0.canvas.width;
-        canvas.height = l0.canvas.height;
-      }
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(l0.canvas, 0, 0);
-    }
+    // Input handling
+    const mouse = new Guacamole.Mouse(displayElement);
+    mouse.onmousedown = mouse.onmousemove = mouse.onmouseup = function(mouseState) {
+        client.sendMouseState(mouseState);
+    };
+    
+    // Disable context menu on display
+    displayElement.addEventListener('contextmenu', e => e.preventDefault());
 
-    // Handle each Guacamole instruction
+    const keyboard = new Guacamole.Keyboard(document);
+    keyboard.onkeydown = function(keysym) {
+        client.sendKeyEvent(1, keysym);
+    };
+    keyboard.onkeyup = function(keysym) {
+        client.sendKeyEvent(0, keysym);
+    };
+
+    // Handle each Guacamole instruction by passing to the tunnel
     async function handleInstruction(opcode, args) {
-      switch (opcode) {
-        case 'ready': {
-          statusOverlay.style.display = 'none';
-          statusText.textContent = 'Connected';
-          statusText.style.color = '#4ade80';
-          const connId = args[0];
-          if (connId) {
-            const w = canvas.width;
-            const h = canvas.height;
-            socket.emit('guac_input', `4.size,${connId.length}.${connId},${(''+w).length}.${w},${(''+h).length}.${h};`);
-            
-            const audioArgs = ["audio/L16"];
-            const videoArgs = [];
-            const imageArgs = ["image/png", "image/jpeg", "image/webp"];
-            
-            socket.emit('guac_input', encodeGuac('audio', ...audioArgs));
-            socket.emit('guac_input', encodeGuac('video', ...videoArgs));
-            socket.emit('guac_input', encodeGuac('image', ...imageArgs));
-          }
-          break;
-        }
-        case 'size': {
-          const layerId = parseInt(args[0]);
-          const w = parseInt(args[1]);
-          const h = parseInt(args[2]);
-          const layer = getLayer(layerId);
-          if (layer.canvas.width !== w || layer.canvas.height !== h) {
-            // Save current content
-            const tmp = layer.ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height);
-            layer.canvas.width = w;
-            layer.canvas.height = h;
-            try { layer.ctx.putImageData(tmp, 0, 0); } catch(e) {}
-          }
-          if (layerId === 0) {
-            defaultWidth = w; defaultHeight = h;
-            canvas.width = w; canvas.height = h;
-          }
-          break;
-        }
-        case 'rect': {
-          const layerId = parseInt(args[0]);
-          const layer = getLayer(layerId);
-          layer.ctx.rect(parseInt(args[1]), parseInt(args[2]), parseInt(args[3]), parseInt(args[4]));
-          break;
-        }
-        case 'cfill': {
-          const mask = parseInt(args[0]);
-          const layerId = parseInt(args[1]);
-          const layer = getLayer(layerId);
-          layer.ctx.globalCompositeOperation = COMPOSITE_OPS[mask] || 'source-over';
-          layer.ctx.fillStyle = parseColor(args[2], args[3], args[4], args[5]);
-          layer.ctx.fill();
-          layer.ctx.beginPath(); // Reset path after filling
-          layer.ctx.globalCompositeOperation = 'source-over';
-          break;
-        }
-        case 'cstroke': {
-          const mask = parseInt(args[0]);
-          const layerId = parseInt(args[1]);
-          const layer = getLayer(layerId);
-          layer.ctx.globalCompositeOperation = COMPOSITE_OPS[mask] || 'source-over';
-          layer.ctx.lineWidth = parseInt(args[2]);
-          layer.ctx.lineCap = args[3];
-          layer.ctx.lineJoin = args[4];
-          layer.ctx.strokeStyle = parseColor(args[5], args[6], args[7], args[8]);
-          layer.ctx.stroke();
-          layer.ctx.beginPath(); // Reset path after stroking
-          layer.ctx.globalCompositeOperation = 'source-over';
-          break;
-        }
-        case 'audio':
-        case 'video':
-        case 'file':
-        case 'pipe':
-        case 'clipboard': {
-          const streamIdx = parseInt(args[0]);
-          // Streams are acked only when blobs are received
-          break;
-        }
-        case 'img': {
-          // Start image stream (img, stream, mask, layer, mimetype, x, y)
-          const streamIdx = parseInt(args[0]);
-          const mask = parseInt(args[1]);
-          const layerId = parseInt(args[2]);
-          const mimeType = args[3];
-          imgCache[streamIdx] = { chunks: [], mimeType, layerId, x: parseInt(args[4]), y: parseInt(args[5]) };
-          break;
-        }
-        case 'blob': {
-          const streamIdx = parseInt(args[0]);
-          const b64 = args[1];
-          if (imgCache[streamIdx]) {
-            imgCache[streamIdx].chunks.push(b64);
-          }
-          socket.emit('guac_input', `3.ack,${('' + streamIdx).length}.${streamIdx},2.OK,1.0;`);
-          break;
-        }
-        case 'end': {
-          const streamIdx = parseInt(args[0]);
-          if (imgCache[streamIdx]) {
-            const cache = imgCache[streamIdx];
-            const img = new Image();
-            img.src = `data:${cache.mimeType};base64,${cache.chunks.join('')}`;
-            await img.decode();
-            const layer = getLayer(cache.layerId);
-            layer.ctx.drawImage(img, cache.x, cache.y);
-            if (cache.layerId === 0) requestFlush();
-            delete imgCache[streamIdx];
-          }
-          break;
-        }
-        case 'copy': {
-          // copy, srcL, sx, sy, sw, sh, mask, dstL, dx, dy
-          const srcLayerId = parseInt(args[0]);
-          const sx = parseInt(args[1]);
-          const sy = parseInt(args[2]);
-          const sw = parseInt(args[3]);
-          const sh = parseInt(args[4]);
-          const mask = parseInt(args[5]);
-          const dstLayerId = parseInt(args[6]);
-          const dx = parseInt(args[7]);
-          const dy = parseInt(args[8]);
-          
-          const srcLayer = getLayer(srcLayerId);
-          const dstLayer = getLayer(dstLayerId);
-          
-          dstLayer.ctx.globalCompositeOperation = COMPOSITE_OPS[mask] || 'source-over';
-          dstLayer.ctx.drawImage(srcLayer.canvas, sx, sy, sw, sh, dx, dy, sw, sh);
-          dstLayer.ctx.globalCompositeOperation = 'source-over';
-          break;
-        }
-        case 'transfer': {
-          // Similar to copy but with special composite
-          const srcLayerId = parseInt(args[0]);
-          const srcX = parseInt(args[1]), srcY = parseInt(args[2]);
-          const srcW = parseInt(args[3]), srcH = parseInt(args[4]);
-          const dstLayerId = parseInt(args[6]);
-          const dstX = parseInt(args[7]), dstY = parseInt(args[8]);
-          const srcLayer = getLayer(srcLayerId);
-          const dstLayer = getLayer(dstLayerId);
-          dstLayer.ctx.drawImage(srcLayer.canvas, srcX, srcY, srcW, srcH, dstX, dstY, srcW, srcH);
-          if (dstLayerId === 0) requestFlush();
-          break;
-        }
-        case 'cursor': {
-          // Change cursor (args: x, y, srcLayerId, srcX, srcY, w, h)
-          // Skip for now - can be implemented later
-          break;
-        }
-        case 'sync': {
-          requestFlush();
-          socket.emit('guac_input', `4.sync,${args[0].length}.${args[0]};`);
-          break;
-        }
-        case 'error': {
-          console.error("Guacamole Error:", args);
-          statusText.textContent = 'Error';
-          statusText.style.color = '#f87171';
-          statusOverlay.style.display = 'block';
-          statusMsg.innerHTML = `<span style="color:red">RDP Error: ${args[0]}</span>`;
-          break;
-        }
-        case 'disconnect': {
-          console.log("Guacamole Disconnect:", args);
-          statusText.textContent = "Disconnected by server";
-          statusText.style.color = '#ef4444';
-          statusOverlay.style.display = 'block';
-          statusMsg.innerHTML = `<span style="color:red">Disconnected by server</span>`;
-          break;
-        }
+      if (opcode === 'ready') {
+        statusOverlay.style.display = 'none';
+        statusText.textContent = 'Connected';
+        statusText.style.color = '#4ade80';
+        const w = wrapper.clientWidth || 1280;
+        const h = wrapper.clientHeight || 800;
+        socket.emit('guac_input', `4.size,${args[0].length}.${args[0]},${(''+w).length}.${w},${(''+h).length}.${h};`);
+        
+        const audioArgs = ["audio/L16"];
+        const videoArgs = [];
+        const imageArgs = ["image/png", "image/jpeg", "image/webp"];
+        
+        tunnel.sendMessage('audio', ...audioArgs);
+        tunnel.sendMessage('video', ...videoArgs);
+        tunnel.sendMessage('image', ...imageArgs);
+      } else if (opcode === 'error') {
+        console.error("Guacamole Error:", args);
+        statusText.textContent = 'Error';
+        statusText.style.color = '#f87171';
+        statusOverlay.style.display = 'block';
+        statusMsg.innerHTML = `<span style="color:red">RDP Error: ${args[0]}</span>`;
+      } else if (opcode === 'disconnect') {
+        console.log("Guacamole Disconnect:", args);
+        statusText.textContent = "Disconnected by server";
+        statusText.style.color = '#ef4444';
+        statusOverlay.style.display = 'block';
+        statusMsg.innerHTML = `<span style="color:red">Disconnected by server</span>`;
       }
-    }
-
-    // ── Keyboard input ──────────────────────────────────────
-    function encodeGuac(...args) {
-      return args.map(a => `${String(a).length}.${a}`).join(',') + ';';
-    }
-
-    document.addEventListener('keydown', e => {
-      const keysym = keyToKeysym(e);
-      if (keysym) {
-        socket.emit('guac_input', encodeGuac('key', keysym, 1));
-        e.preventDefault();
+      
+      if (tunnel.oninstruction) {
+        tunnel.oninstruction(opcode, args);
       }
-    });
-    document.addEventListener('keyup', e => {
-      const keysym = keyToKeysym(e);
-      if (keysym) {
-        socket.emit('guac_input', encodeGuac('key', keysym, 0));
-      }
-    });
-
-    // ── Mouse input ─────────────────────────────────────────
-    let mouseBtn = 0;
-    canvas.addEventListener('mousemove', e => {
-      const rect = canvas.getBoundingClientRect();
-      const x = Math.floor(e.clientX - rect.left);
-      const y = Math.floor(e.clientY - rect.top);
-      socket.emit('guac_input', encodeGuac('mouse', x, y, mouseBtn));
-    });
-    canvas.addEventListener('mousedown', e => {
-      mouseBtn |= (1 << e.button);
-      const rect = canvas.getBoundingClientRect();
-      socket.emit('guac_input', encodeGuac('mouse', Math.floor(e.clientX - rect.left), Math.floor(e.clientY - rect.top), mouseBtn));
-    });
-    canvas.addEventListener('mouseup', e => {
-      mouseBtn &= ~(1 << e.button);
-      const rect = canvas.getBoundingClientRect();
-      socket.emit('guac_input', encodeGuac('mouse', Math.floor(e.clientX - rect.left), Math.floor(e.clientY - rect.top), mouseBtn));
-    });
-    canvas.addEventListener('wheel', e => {
-      const btn = e.deltaY < 0 ? 8 : 16;
-      const rect = canvas.getBoundingClientRect();
-      const x = Math.floor(e.clientX - rect.left);
-      const y = Math.floor(e.clientY - rect.top);
-      socket.emit('guac_input', encodeGuac('mouse', x, y, mouseBtn | btn));
-      socket.emit('guac_input', encodeGuac('mouse', x, y, mouseBtn));
-      e.preventDefault();
-    }, { passive: false });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-
-    // ── Minimal keysym map ──────────────────────────────────
-    function keyToKeysym(e) {
-      const map = {
-        'Backspace':0xff08,'Tab':0xff09,'Enter':0xff0d,'Shift':0xffe1,'Control':0xffe3,
-        'Alt':0xffe9,'Pause':0xff13,'CapsLock':0xffe5,'Escape':0xff1b,'Space':0x0020,
-        'PageUp':0xff55,'PageDown':0xff56,'End':0xff57,'Home':0xff50,
-        'ArrowLeft':0xff51,'ArrowUp':0xff52,'ArrowRight':0xff53,'ArrowDown':0xff54,
-        'PrintScreen':0xff61,'Insert':0xff63,'Delete':0xffff,
-        'F1':0xffbe,'F2':0xffbf,'F3':0xffc0,'F4':0xffc1,'F5':0xffc2,'F6':0xffc3,
-        'F7':0xffc4,'F8':0xffc5,'F9':0xffc6,'F10':0xffc7,'F11':0xffc8,'F12':0xffc9,
-        'Meta':0xffe7,'ContextMenu':0xff67,
-      };
-      if (map[e.key]) return map[e.key];
-      if (e.key.length === 1) return e.key.charCodeAt(0);
-      return null;
     }
 
     // ── Guacamole protocol parser ───────────────────────────
@@ -476,9 +244,6 @@
       statusMsg.textContent = 'Connected. Starting RDP...';
       const w = wrapper.clientWidth || 1280;
       const h = wrapper.clientHeight || 800;
-      canvas.width = w;
-      canvas.height = h;
-      defaultWidth = w; defaultHeight = h;
       socket.emit('start_rdp', { token, slug, width: w, height: h });
     });
 

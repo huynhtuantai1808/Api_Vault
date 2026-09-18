@@ -1,79 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>RDP Console - API Vault</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body, html {
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
-      background: #111;
-      overflow: hidden;
-      font-family: 'Inter', monospace;
-    }
-    #terminal-header {
-      background: #1e1e1e;
-      color: #aaa;
-      padding: 6px 16px;
-      font-size: 13px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #333;
-      user-select: none;
-      height: 36px;
-    }
-    #server-name { color: #60a5fa; font-weight: 600; }
-    #rdp-wrapper {
-      width: 100%;
-      height: calc(100% - 36px);
-      overflow: auto;
-      background: #000;
-      display: flex;
-      align-items: flex-start;
-      justify-content: flex-start;
-    }
-
-    #status-overlay {
-      position: fixed;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      color: #aaa;
-      font-size: 14px;
-      text-align: center;
-      z-index: 100;
-    }
-    .spinner {
-      width: 40px; height: 40px;
-      border: 3px solid #333;
-      border-top-color: #60a5fa;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 12px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-</head>
-<body>
-  <div id="terminal-header">
-    <div>RDP Session: <span id="server-name">Loading...</span></div>
-    <div style="display:flex;gap:12px;align-items:center">
-      <span id="status-text" style="font-size:12px;color:#666">Connecting...</span>
-      <span style="cursor:pointer;color:#aaa" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'" onclick="window.close()">✕ Close</span>
-    </div>
-  </div>
-  <div id="rdp-wrapper">
-    </div>
-  <div id="status-overlay">
-    <div class="spinner"></div>
-    <div id="status-msg">Connecting to RDP server...</div>
-  </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="/static/js/guacamole.min.js"></script>
-  <script>
   (function() {
     const token = localStorage.getItem('vault_token');
     const slug = new URLSearchParams(window.location.search).get('slug');
@@ -115,6 +39,8 @@
     const displayElement = client.getDisplay().getElement();
     wrapper.appendChild(displayElement);
     
+    // Connect the client to initialize it
+    client.connect();
 
     // Error handling
     client.onerror = function(error) {
@@ -141,12 +67,7 @@
     };
 
     // Handle each Guacamole instruction by passing to the tunnel
-    let instructionCount = 0;
     async function handleInstruction(opcode, args) {
-      instructionCount++;
-      if (instructionCount <= 10) {
-        console.log(`[GUAC INSTRUCTION] ${opcode} [${args.join(', ')}]`);
-      }
       if (opcode === 'ready') {
         statusOverlay.style.display = 'none';
         statusText.textContent = 'Connected';
@@ -252,25 +173,6 @@
       statusMsg.textContent = 'Connected. Starting RDP...';
       const w = wrapper.clientWidth || 1280;
       const h = wrapper.clientHeight || 800;
-      
-      // Override console.log to send to server
-      const origLog = console.log;
-      console.log = function(...args) {
-        origLog.apply(console, args);
-        socket.emit('client_log', args.join(' '));
-      };
-      const origError = console.error;
-      console.error = function(...args) {
-        origError.apply(console, args);
-        socket.emit('client_log', 'ERROR: ' + args.join(' '));
-      };
-      window.onerror = function(msg, url, line) {
-        socket.emit('client_log', `WindowError: ${msg} at ${line}`);
-      };
-
-      // Connect the client to initialize it
-      client.connect();
-      
       socket.emit('start_rdp', { token, slug, width: w, height: h });
     });
 
@@ -307,6 +209,3 @@
 
     window.onunload = () => socket.emit('stop_rdp');
   })();
-  </script>
-</body>
-</html>

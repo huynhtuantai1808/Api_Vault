@@ -78,7 +78,9 @@ class GuacamoleClient:
         arg_names = args_inst[1:]
         
         # Send size, audio, video, image
-        self.send("size", "1920", "1080", "96")
+        width = kwargs.get('width', 1920)
+        height = kwargs.get('height', 1080)
+        self.send("size", str(width), str(height), "96")
         self.send("audio", "audio/L16")
         self.send("video")
         self.send("image", "image/png", "image/jpeg", "image/webp")

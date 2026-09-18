@@ -312,3 +312,7 @@ def cleanup_session(sid):
             guac.close()
         except:
             pass
+
+@socketio.on("client_log")
+def on_client_log(msg):
+    print(f"[CLIENT LOG from {request.sid}]: {msg}")

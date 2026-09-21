@@ -90,14 +90,15 @@ def create_app(config=None):
 
     # Register blueprints
     from app.routes import auth_bp, api_keys_bp, secrets_bp, ssh_bp, admin_bp, import_bp, totp_bp, other_secrets_bp
-    app.register_blueprint(auth_bp)
+
+    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
+    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(api_keys_bp)
     app.register_blueprint(secrets_bp, url_prefix="/api/v1/secrets")
-    app.register_blueprint(other_secrets_bp, url_prefix="/api/v1/other_secrets")
-    app.register_blueprint(ssh_bp)
-    app.register_blueprint(admin_bp)
-    app.register_blueprint(import_bp)
+    app.register_blueprint(ssh_bp, url_prefix="/api/v1/ssh")
     app.register_blueprint(totp_bp, url_prefix="/api/v1/totp")
+    app.register_blueprint(other_secrets_bp, url_prefix="/api/v1/other_secrets")
+    app.register_blueprint(import_bp)
     
     # Import socket events to register them
     import app.sockets as _sockets
@@ -171,3 +172,4 @@ def _seed_admin(app):
             )
     except Exception:
         pass  # Silently skip — tables may not exist yet
+

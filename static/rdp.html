@@ -31,9 +31,8 @@
       height: calc(100% - 36px);
       overflow: auto;
       background: #000;
-      display: flex;
-      align-items: flex-start;
-      justify-content: flex-start;
+      display: block;
+      position: relative;
     }
 
     #status-overlay {
@@ -141,11 +140,13 @@
     };
 
     // Handle each Guacamole instruction by passing to the tunnel
-    let instructionCount = 0;
+    let drawCount = 0;
     async function handleInstruction(opcode, args) {
-      instructionCount++;
-      if (instructionCount <= 10) {
-        console.log(`[GUAC INSTRUCTION] ${opcode} [${args.join(', ')}]`);
+      if (['rect', 'cfill', 'png', 'jpeg', 'copy', 'img', 'blob', 'lfill', 'line'].includes(opcode)) {
+        drawCount++;
+        if (drawCount <= 20) {
+          console.log(`[GUAC DRAW] ${opcode} [${args.join(', ')}]`);
+        }
       }
       if (opcode === 'ready') {
         statusOverlay.style.display = 'none';
@@ -304,6 +305,18 @@
       }
       parseBuffer();
     });
+
+    // Auto-scale display to fit wrapper
+    function updateScale() {
+      const display = client.getDisplay();
+      if (display.getWidth() > 0 && display.getHeight() > 0) {
+        const scaleX = wrapper.clientWidth / display.getWidth();
+        const scaleY = wrapper.clientHeight / display.getHeight();
+        display.scale(Math.min(scaleX, scaleY, 1)); // Don't scale up past 1x
+      }
+    }
+    window.addEventListener('resize', updateScale);
+    setInterval(updateScale, 1000);
 
     window.onunload = () => socket.emit('stop_rdp');
   })();

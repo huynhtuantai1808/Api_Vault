@@ -425,7 +425,7 @@ window.renderSidebarFolders = function(secrets, explicit = []) {
   function renderNode(node, depth) {
     let html = '';
     const hasChildren = Object.keys(node.children).length > 0;
-    const isExpanded = window.sidebarExpandedFolders[node.path] !== false; // Default true
+    const isExpanded = window.sidebarExpandedFolders[node.path] === true; // Default false
     const isActive = currentFolderFilter === node.path;
     const safePath = node.path.replace(/'/g, "\\'");
     
@@ -527,18 +527,24 @@ function renderSecrets(secrets) {
   const tbody = document.getElementById('secrets-body');
   
   // Save current UI state
-  const collapsedFolders = new Set();
+  const expandedFolders = new Set();
   document.querySelectorAll('.folder-header').forEach(header => {
     const textContent = header.innerText || '';
     const match = textContent.match(/📁\s*(.*?)\s*\(/);
     if (match) {
       const folderName = match[1].trim();
       const iconSpan = header.querySelector('span[id^="f-icon-"]');
-      if (iconSpan && iconSpan.textContent.includes('▶')) {
-        collapsedFolders.add(folderName);
+      if (iconSpan && iconSpan.textContent.includes('▼')) {
+        expandedFolders.add(folderName);
       }
     }
   });
+  
+  // Auto-expand the currently selected folder
+  if (currentFolderFilter) {
+    expandedFolders.add(currentFolderFilter);
+  }
+  
   const selectedIds = new Set(Array.from(document.querySelectorAll('.secret-checkbox:checked')).map(cb => cb.value));
 
   if (secrets.length === 0) {
@@ -569,8 +575,9 @@ function renderSecrets(secrets) {
   let html = '';
   folders.forEach((f, idx) => {
     const folderId = `f${idx}`;
-    const isCollapsed = collapsedFolders.has(f);
-    const icon = isCollapsed ? '▶' : '▼';
+    const isExpanded = expandedFolders.has(f);
+    const isCollapsed = !isExpanded;
+    const icon = isExpanded ? '▼' : '▶';
     
     html += `
       <tr class="folder-header" onclick="toggleFolder('${folderId}')" style="cursor:pointer; background:rgba(255,255,255,0.03); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05)">

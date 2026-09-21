@@ -258,7 +258,8 @@ def on_start_rdp(data):
             'ignore-cert': 'true',
             'security': 'nla',
             'width': width,
-            'height': height
+            'height': height,
+            'color-depth': '32'
         }
         conn_id = guac.handshake("rdp", **kwargs)
         
@@ -315,4 +316,6 @@ def cleanup_session(sid):
 
 @socketio.on("client_log")
 def on_client_log(msg):
+    from flask import current_app
+    current_app.logger.error(f"[CLIENT LOG from {request.sid}]: {msg}")
     print(f"[CLIENT LOG from {request.sid}]: {msg}")

@@ -437,7 +437,7 @@ window.renderSidebarFolders = function(secrets, explicit = []) {
       <li data-folder="${node.path}" class="${isActive ? 'active' : ''}" style="padding-left: ${padding}px; display: flex; align-items: center;" oncontextmenu="showFolderContextMenu(event, '${safePath}')">
         <span onclick="toggleSidebarFolder(event, '${safePath}')" style="cursor:pointer; width:16px; font-size:10px; opacity:0.6">${toggleIcon}</span>
         <span onclick="selectSidebarFolder('${safePath}')" style="flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${node.name}">📁 ${node.name}</span>
-        <span style="font-size:11px;color:var(--text-muted)">${counts[node.path] || node.exactCount}</span>
+        <span style="font-size:11px; color: var(--accent-amber); background: rgba(246,173,85,0.15); border: 1px solid rgba(246,173,85,0.3); padding: 2px 7px; border-radius: 10px; font-weight: 700; margin-left: 6px;">${counts[node.path] || node.exactCount}</span>
       </li>
     `;
     
@@ -583,7 +583,7 @@ function renderSecrets(secrets) {
       <tr class="folder-header" onclick="toggleFolder('${folderId}')" style="cursor:pointer; background:rgba(255,255,255,0.03); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05)">
         <td colspan="9">
           <span id="f-icon-${folderId}" style="display:inline-block; width:20px; font-size:12px; transition:0.2s">${icon}</span>
-          📁 <strong>${f}</strong> <span style="color:var(--text-muted);font-size:12px;margin-left:6px">(${grouped[f].length})</span>
+          📁 <strong>${f}</strong> <span style="font-size:11px; color: var(--accent-amber); background: rgba(246,173,85,0.15); border: 1px solid rgba(246,173,85,0.3); padding: 2px 7px; border-radius: 10px; font-weight: 700; margin-left: 8px;">${grouped[f].length}</span>
         </td>
       </tr>
     `;
@@ -896,7 +896,10 @@ async function viewSecret(slug) {
   } else if (data.auth_type === 'ssh_key') {
     document.getElementById('vs-password-group').style.display = 'none';
     document.getElementById('vs-ssh-group').style.display = 'block';
-    document.getElementById('vs-ssh-val').value = data.ssh_private_key;
+    
+    const sshVal = document.getElementById('vs-ssh-val');
+    sshVal.dataset.raw = data.ssh_private_key || '';
+    sshVal.value = data.ssh_private_key ? '-----BEGIN OPENSSH PRIVATE KEY-----\n••••••••••••••••••••••••••••••••••••••••\n-----END OPENSSH PRIVATE KEY-----' : '—';
     
     // Quick connect command
     const portFlag = data.port && data.port !== 22 ? ` -p ${data.port}` : '';
@@ -1827,6 +1830,23 @@ async function loadImportJobs() {
 // ============================================================
 // AUTO-INIT
 // ============================================================
+
+window.toggleSshVisibility = function() {
+  const el = document.getElementById('vs-ssh-val');
+  if (el.value.includes('••••••••')) {
+    el.value = el.dataset.raw || '';
+  } else {
+    el.value = '-----BEGIN OPENSSH PRIVATE KEY-----\n••••••••••••••••••••••••••••••••••••••••\n-----END OPENSSH PRIVATE KEY-----';
+  }
+};
+
+window.copySshVal = function() {
+  const el = document.getElementById('vs-ssh-val');
+  navigator.clipboard.writeText(el.dataset.raw || '').then(() => {
+    showToast('SSH Key copied to clipboard', 'success');
+  });
+};
+
 
 if (authToken && currentUser) {
   initApp();

@@ -547,7 +547,19 @@ def update_secret(slug: str):
         
     updated["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    VaultClient.kv_update(f"{base_path}/{slug}", updated)
+    new_name = data.get("name")
+    if new_name and new_name != existing.get("name"):
+        new_slug = _slugify(new_name)
+        if new_slug != slug:
+            if VaultClient.kv_read(f"{base_path}/{new_slug}"):
+                return jsonify({"error": f"Cannot rename. Secret '{new_slug}' already exists."}), 409
+            VaultClient.kv_update(f"{base_path}/{new_slug}", updated)
+            VaultClient.kv_delete(f"{base_path}/{slug}")
+            slug = new_slug
+        else:
+            VaultClient.kv_update(f"{base_path}/{slug}", updated)
+    else:
+        VaultClient.kv_update(f"{base_path}/{slug}", updated)
 
     AuditLog.log(
         action="secret.updated",

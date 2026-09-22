@@ -1027,6 +1027,7 @@ async function editSecret(slug) {
   saveBtn.textContent = 'Update Secret';
   saveBtn.onclick = async () => {
     const body = {
+      name: document.getElementById('cs-name').value.trim(),
       host: document.getElementById('cs-host').value.trim(),
       port: parseInt(document.getElementById('cs-port').value) || 22,
       username: document.getElementById('cs-username').value.trim(),

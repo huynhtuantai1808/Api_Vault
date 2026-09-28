@@ -1,4 +1,3 @@
-
 services:
   # ─────────────────────────────────────────────
   # PostgreSQL Database
@@ -15,33 +14,37 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vault_user -d api_vault"]
+      test: [ "CMD-SHELL", "pg_isready -U vault_user -d api_vault" ]
       interval: 10s
       timeout: 5s
       retries: 5
-
+    restart: always
   # ─────────────────────────────────────────────
   # HashiCorp Vault (dev mode – root token = "root")
   # UI: http://localhost:8200  |  Token: root
   # ─────────────────────────────────────────────
+
   vault:
     image: hashicorp/vault:1.17
     container_name: vault_server
     cap_add:
       - IPC_LOCK
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: "root"
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_API_ADDR: "http://0.0.0.0:8200"
+      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
     ports:
       - "8200:8200"
-    command: server -dev
+    command: server
+    volumes:
+      - vault_data:/vault/file # ← Lưu data
+      - vault_logs:/vault/logs
     healthcheck:
-      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8200/v1/sys/health || exit 0" ]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 5s
-
+    restart: always
   # ─────────────────────────────────────────────
   # Vault Init – one-shot provisioner
   # Enables KV v2 + SSH CA, creates SSH role, then exits (code 0)
@@ -49,16 +52,40 @@ services:
   vault-init:
     image: hashicorp/vault:1.17
     container_name: vault_init
+    volumes:
+      - vault_data:/vault/data
     depends_on:
       vault:
         condition: service_healthy
     environment:
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "root"
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: [ "/bin/sh", "-c" ]
     command:
       - |
         set -e
+        echo "==> Waiting for Vault to start..."
+        while ! wget -qO- http://vault:8200/v1/sys/init >/dev/null 2>&1; do sleep 1; done
+
+        INIT_STATUS=$$(wget -qO- http://vault:8200/v1/sys/init 2>/dev/null)
+        if echo "$$INIT_STATUS" | grep -q '"initialized":false'; then
+          echo "==> Initializing Vault..."
+          vault operator init -key-shares=1 -key-threshold=1 -format=json > /vault/data/init.json
+          echo "==> Vault initialized."
+        fi
+
+        UNSEAL_KEY=$$(grep -A 1 '"unseal_keys_b64":' /vault/data/init.json | tail -n 1 | tr -d '", ')
+        ROOT_TOKEN=$$(grep '"root_token":' /vault/data/init.json | cut -d'"' -f4)
+
+        echo "==> Unsealing Vault..."
+        vault operator unseal "$$UNSEAL_KEY" || true
+
+        export VAULT_TOKEN="$$ROOT_TOKEN"
+
+        # Ensure root token exists for Api Vault
+        vault token create -id=root -policy=root 2>/dev/null || true
+        export VAULT_TOKEN="root"
+
         echo "==> Enabling KV v2 secrets engine..."
         vault secrets enable -version=2 -path=secret kv 2>/dev/null || echo "KV already enabled"
 
@@ -68,13 +95,12 @@ services:
         echo "==> Generating SSH CA..."
         vault write ssh/config/ca generate_signing_key=true 2>/dev/null || echo "CA already configured"
 
-        SSH_ROLE="${VAULT_SSH_ROLE:-my-role}"
-        echo "==> Creating SSH role: ${SSH_ROLE}..."
-        vault write "ssh/roles/${SSH_ROLE}" \
+        SSH_ROLE="$${VAULT_SSH_ROLE:-my-role}"
+        echo "==> Creating SSH role: $${SSH_ROLE}..."
+        vault write "ssh/roles/$${SSH_ROLE}" \
           key_type=ca \
           allow_user_certificates=true \
           allowed_users="*" \
-          default_extensions='{"permit-pty": ""}' \
           ttl=1h \
           max_ttl=24h
 
@@ -86,9 +112,9 @@ services:
         echo "│  Address : http://vault:8200                 │"
         echo "│  Token   : root                              │"
         echo "│  KV path : secret/                           │"
-        echo "│  SSH role: ${VAULT_SSH_ROLE:-my-role}        │"
+        echo "│  SSH role: $${VAULT_SSH_ROLE:-my-role}        │"
         echo "└─────────────────────────────────────────────┘"
-    restart: "no"
+    restart: always
 
   # ─────────────────────────────────────────────
   # Apache Guacamole Daemon (guacd) for RDP
@@ -130,8 +156,13 @@ services:
       - "5055:5055"
     volumes:
       - ssh_keys:/tmp/vault_keys
-    restart: unless-stopped
+    restart: always
 
 volumes:
   pgdata:
   ssh_keys:
+  vault_data:
+    # ← thêm
+    #  vault_config: # ← thêm
+
+  vault_logs: # ← thêm

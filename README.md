@@ -11,7 +11,7 @@
 | 🔑 **API Key Management** | Generate, revoke, rotate keys với phân quyền scope |
 | 💻 **SSH Certificates** | Ký SSH key qua Vault SSH CA, download bundle |
 | 🌐 **Web Terminal** | Giao diện Console (Tab riêng), kết nối SSH trực tiếp trên trình duyệt, hỗ trợ Auto-fill 2FA/TOTP |
-| 💻 **Windows RDP** | Sinh tự động và tải xuống file `.rdp` để truy cập Remote Desktop trực tiếp |
+| 💻 **Windows Web RDP** | Trình duyệt Web RDP trực tiếp trên trình duyệt (Guacamole), không cần phần mềm ngoài |
 | 📦 **KeePass Import** | Import hàng loạt Server credentials từ file `.kdbx` bằng Background job |
 | ⬆️⬇️ **Export / Import** | Sao lưu và khôi phục toàn bộ danh sách server qua định dạng JSON |
 | 🐧🪟 **OS Classification**| Phân loại và hiển thị icon trực quan cho máy chủ Windows / Linux |
@@ -37,7 +37,7 @@ flowchart TD
     TargetServer["🖥️ Target SSH Server"]
 
     User -->|"Web UI / Terminal"| subFlask
-    User -->|"Interactive SSH"| subWS
+    User -->|"Interactive SSH / Web RDP"| subWS
     API_Client -->|"REST API + X-API-Key"| subFlask
     
     subFlask -->|"Read/Write"| DB
@@ -92,7 +92,7 @@ Hoặc dùng Docker:
 
 ```bash
 # Chỉ chạy PostgreSQL và  Vault (nếu chưa có)
-docker compose up -d postgres  vault  vault-init
+docker compose up -d postgres  vault  vault-init  guacd
 
 # Chạy toàn bộ
 docker compose up -d

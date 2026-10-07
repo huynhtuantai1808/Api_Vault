@@ -122,6 +122,36 @@
       statusOverlay.style.display = 'block';
     };
 
+    // Clipboard integration (Server -> Client)
+    client.onclipboard = function(stream, mimetype) {
+      if (mimetype === 'text/plain') {
+        const reader = new Guacamole.StringReader(stream);
+        let data = '';
+        reader.ontext = function(text) { data += text; };
+        reader.onend = function() {
+          navigator.clipboard.writeText(data).catch(e => console.error("Clipboard write failed:", e));
+        };
+      }
+    };
+
+    // Clipboard integration (Client -> Server)
+    async function syncClipboardToServer() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          const stream = client.createClipboardStream('text/plain');
+          const writer = new Guacamole.StringWriter(stream);
+          writer.sendText(text);
+          writer.sendEnd();
+        }
+      } catch (e) {
+        // Ignore if permission denied or no text
+      }
+    }
+    window.addEventListener('focus', syncClipboardToServer);
+    // Also try syncing on initial load if possible
+    setTimeout(syncClipboardToServer, 1000);
+
     // Input handling
     const mouse = new Guacamole.Mouse(displayElement);
     mouse.onmousedown = mouse.onmousemove = mouse.onmouseup = function(mouseState) {

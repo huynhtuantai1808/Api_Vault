@@ -410,16 +410,24 @@ window.renderSidebarFolders = function(secrets, explicit = []) {
     parts.forEach((part, i) => {
       currentPath = currentPath ? `${currentPath}/${part}` : part;
       if (!current.children[part]) {
-        current.children[part] = { path: currentPath, name: part, children: {}, count: 0, exactCount: 0 };
+        current.children[part] = { path: currentPath, name: part, children: {}, count: 0, exactCount: counts[currentPath] || 0 };
+      } else if (i === parts.length - 1) {
+        current.children[part].exactCount = counts[currentPath] || 0;
       }
-      // Add counts from all servers that belong to this exact folder or its subfolders
-      current.children[part].count = secrets.filter(s => s.folder === currentPath || (s.folder && s.folder.startsWith(currentPath + '/'))).length;
       current = current.children[part];
-      if (i === parts.length - 1) {
-          current.exactCount = counts[currentPath] || 0;
-      }
     });
   });
+  
+  // Compute aggregate counts bottom-up (O(V) instead of O(V*N))
+  function computeCounts(node) {
+    let total = node.exactCount || 0;
+    Object.values(node.children).forEach(child => {
+      total += computeCounts(child);
+    });
+    node.count = total;
+    return total;
+  }
+  computeCounts(root);
   
   // Recursive render function
   function renderNode(node, depth) {
@@ -437,7 +445,7 @@ window.renderSidebarFolders = function(secrets, explicit = []) {
       <li data-folder="${node.path}" class="${isActive ? 'active' : ''}" style="padding-left: ${padding}px; display: flex; align-items: center;" oncontextmenu="showFolderContextMenu(event, '${safePath}')">
         <span onclick="toggleSidebarFolder(event, '${safePath}')" style="cursor:pointer; width:16px; font-size:10px; opacity:0.6">${toggleIcon}</span>
         <span onclick="selectSidebarFolder('${safePath}')" style="flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${node.name}">📁 ${node.name}</span>
-        <span style="font-size:11px; color: var(--accent-amber); background: rgba(246,173,85,0.15); border: 1px solid rgba(246,173,85,0.3); padding: 2px 7px; border-radius: 10px; font-weight: 700; margin-left: 6px;">${counts[node.path] || node.exactCount}</span>
+        <span style="font-size:11px; color: var(--accent-amber); background: rgba(246,173,85,0.15); border: 1px solid rgba(246,173,85,0.3); padding: 2px 7px; border-radius: 10px; font-weight: 700; margin-left: 6px;">${node.count}</span>
       </li>
     `;
     

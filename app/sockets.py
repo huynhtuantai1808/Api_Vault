@@ -326,3 +326,135 @@ def on_client_log(msg):
     from flask import current_app
     current_app.logger.error(f"[CLIENT LOG from {request.sid}]: {msg}")
     print(f"[CLIENT LOG from {request.sid}]: {msg}")
+
+
+# ─── SFTP File Browser ──────────────────────────────────────────────────────
+
+@socketio.on("sftp_ls")
+def on_sftp_ls(data):
+    """List directory contents via SFTP."""
+    sid = request.sid
+    ssh = active_ssh_clients.get(sid)
+    if not ssh:
+        emit("sftp_error", "No active SSH session")
+        return
+    path = data.get("path", "/")
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            entries = []
+            for attr in sftp.listdir_attr(path):
+                import stat
+                is_dir = stat.S_ISDIR(attr.st_mode)
+                entries.append({
+                    "name": attr.filename,
+                    "is_dir": is_dir,
+                    "size": attr.st_size,
+                    "mtime": attr.st_mtime,
+                })
+            # Sort: dirs first, then files, both alphabetically
+            entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+            emit("sftp_ls_result", {"path": path, "entries": entries})
+        finally:
+            sftp.close()
+    except Exception as e:
+        emit("sftp_error", f"ls failed: {str(e)}")
+
+
+@socketio.on("sftp_download")
+def on_sftp_download(data):
+    """Download a file from the remote server via SFTP."""
+    import base64
+    sid = request.sid
+    ssh = active_ssh_clients.get(sid)
+    if not ssh:
+        emit("sftp_error", "No active SSH session")
+        return
+    remote_path = data.get("path", "")
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            buf = io.BytesIO()
+            sftp.getfo(remote_path, buf)
+            content_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            filename = remote_path.split("/")[-1]
+            emit("sftp_download_result", {
+                "filename": filename,
+                "content_b64": content_b64,
+                "mime": "application/octet-stream"
+            })
+        finally:
+            sftp.close()
+    except Exception as e:
+        emit("sftp_error", f"download failed: {str(e)}")
+
+
+@socketio.on("sftp_upload")
+def on_sftp_upload(data):
+    """Upload a file to the remote server via SFTP."""
+    import base64
+    sid = request.sid
+    ssh = active_ssh_clients.get(sid)
+    if not ssh:
+        emit("sftp_error", "No active SSH session")
+        return
+    remote_dir = data.get("path", "/tmp")
+    filename = data.get("filename", "upload")
+    content_b64 = data.get("content_b64", "")
+    try:
+        content = base64.b64decode(content_b64)
+        sftp = ssh.open_sftp()
+        try:
+            remote_path = remote_dir.rstrip("/") + "/" + filename
+            with sftp.open(remote_path, "wb") as f:
+                f.write(content)
+            emit("sftp_upload_result", {"path": remote_path, "success": True})
+        finally:
+            sftp.close()
+    except Exception as e:
+        emit("sftp_error", f"upload failed: {str(e)}")
+
+
+@socketio.on("sftp_mkdir")
+def on_sftp_mkdir(data):
+    """Create a directory via SFTP."""
+    sid = request.sid
+    ssh = active_ssh_clients.get(sid)
+    if not ssh:
+        emit("sftp_error", "No active SSH session")
+        return
+    path = data.get("path", "")
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            sftp.mkdir(path)
+            emit("sftp_mkdir_result", {"path": path, "success": True})
+        finally:
+            sftp.close()
+    except Exception as e:
+        emit("sftp_error", f"mkdir failed: {str(e)}")
+
+
+@socketio.on("sftp_rm")
+def on_sftp_rm(data):
+    """Remove a file or directory via SFTP."""
+    sid = request.sid
+    ssh = active_ssh_clients.get(sid)
+    if not ssh:
+        emit("sftp_error", "No active SSH session")
+        return
+    path = data.get("path", "")
+    is_dir = data.get("is_dir", False)
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            if is_dir:
+                sftp.rmdir(path)
+            else:
+                sftp.remove(path)
+            emit("sftp_rm_result", {"path": path, "success": True})
+        finally:
+            sftp.close()
+    except Exception as e:
+        emit("sftp_error", f"rm failed: {str(e)}")
+

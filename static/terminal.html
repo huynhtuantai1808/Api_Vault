@@ -6,109 +6,509 @@
   <title>SSH Terminal - API Vault</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
     body, html {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background-color: #000;
-      overflow: hidden;
-      font-family: 'Inter', sans-serif;
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #0d1117; overflow: hidden;
+      font-family: 'Segoe UI', 'Inter', sans-serif; color: #c9d1d9;
     }
     #terminal-header {
-      background: #111;
-      color: #aaa;
-      padding: 8px 16px;
-      font-size: 13px;
-      display: flex;
-      justify-content: space-between;
-      border-bottom: 1px solid #333;
-      user-select: none;
+      background: #161b22; color: #8b949e; padding: 0 12px; font-size: 12px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid #30363d; height: 34px; flex-shrink: 0; user-select: none;
     }
-    #terminal-container {
-      width: 100%;
-      height: calc(100% - 35px); /* Minus header height */
+    #server-name { color: #58a6ff; font-weight: 600; font-size: 13px; }
+    .header-right { display: flex; gap: 8px; align-items: center; }
+    .header-btn {
+      cursor: pointer; color: #8b949e; font-size: 11px; padding: 3px 8px; border-radius: 4px;
+      display: flex; align-items: center; gap: 4px; transition: background .15s, color .15s;
+      border: 1px solid transparent;
     }
-    #server-name {
-      color: #4ade80;
-      font-weight: 600;
+    .header-btn:hover { background: #21262d; color: #e6edf3; border-color: #30363d; }
+    .header-btn.active { background: #1f6feb22; color: #58a6ff; border-color: #1f6feb; }
+    #main-layout { display: flex; height: calc(100% - 34px); }
+    #file-browser {
+      width: 240px; min-width: 160px; max-width: 480px;
+      background: #0d1117; border-right: 1px solid #21262d;
+      display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; transition: width .2s;
     }
+    #file-browser.collapsed { width: 0 !important; border-right: none; }
+    .fb-header {
+      background: #161b22; padding: 6px 8px; font-size: 10.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .07em; color: #8b949e;
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid #21262d; flex-shrink: 0;
+    }
+    .fb-toolbar { display: flex; gap: 1px; }
+    .fb-icon-btn {
+      cursor: pointer; color: #8b949e; padding: 3px 5px; border-radius: 4px; font-size: 13px;
+      line-height: 1; background: none; border: none; transition: background .15s, color .15s;
+    }
+    .fb-icon-btn:hover { background: #21262d; color: #e6edf3; }
+    #fb-path-bar {
+      padding: 4px 8px; font-size: 11px; color: #8b949e; background: #0d1117;
+      border-bottom: 1px solid #21262d; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; flex-shrink: 0;
+    }
+    #fb-tree { flex: 1; overflow-y: auto; overflow-x: hidden; }
+    #fb-tree::-webkit-scrollbar { width: 4px; }
+    #fb-tree::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+    .fb-entry {
+      display: flex; align-items: center; gap: 5px; padding: 3px 8px;
+      cursor: pointer; font-size: 12.5px; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; user-select: none; border-radius: 4px; margin: 1px 3px;
+    }
+    .fb-entry:hover { background: #21262d; }
+    .fb-entry.selected { background: #1f6feb33; color: #58a6ff; }
+    .fb-entry .fb-icon { font-size: 13px; flex-shrink: 0; width: 16px; text-align: center; }
+    .fb-entry .fb-name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .fb-entry .fb-size { font-size: 10px; color: #484f58; flex-shrink: 0; }
+    #ctx-menu {
+      position: fixed; background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      padding: 4px 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 9999;
+      min-width: 170px; display: none;
+    }
+    .ctx-item {
+      padding: 6px 14px; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; color: #c9d1d9; transition: background .1s;
+    }
+    .ctx-item:hover { background: #1f6feb22; color: #58a6ff; }
+    .ctx-item.danger:hover { background: #da363622; color: #f85149; }
+    .ctx-sep { height: 1px; background: #21262d; margin: 3px 0; }
+    #drop-overlay {
+      position: fixed; inset: 0; background: rgba(31,111,235,.12); border: 3px dashed #1f6feb;
+      z-index: 8888; display: none; align-items: center; justify-content: center;
+      pointer-events: none; font-size: 18px; color: #58a6ff;
+    }
+    #fb-status {
+      padding: 3px 8px; font-size: 10px; color: #6e7681; border-top: 1px solid #21262d;
+      background: #0d1117; flex-shrink: 0; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; min-height: 20px;
+    }
+    #fb-status.error { color: #f85149; }
+    #fb-status.success { color: #3fb950; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #resize-handle { width: 4px; cursor: col-resize; background: transparent; flex-shrink: 0; transition: background .15s; }
+    #resize-handle:hover, #resize-handle.dragging { background: #1f6feb; }
+    #terminal-area { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+    #terminal-container { flex: 1; min-height: 0; background: #000; }
+    .xterm { height: 100%; }
+    .xterm-viewport { overflow-y: hidden !important; }
+    #upload-progress {
+      position: fixed; bottom: 24px; right: 24px; background: #161b22;
+      border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; min-width: 260px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; z-index: 9000;
+    }
+    #upload-progress .up-title { font-size: 11px; color: #8b949e; margin-bottom: 4px; }
+    #upload-progress .up-name { font-size: 12px; color: #e6edf3; font-weight: 500; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prog-bar { height: 4px; background: #21262d; border-radius: 4px; overflow: hidden; }
+    .prog-fill { height: 100%; background: #1f6feb; border-radius: 4px; transition: width .2s; }
+    #input-modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 9500;
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-box {
+      background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+      padding: 20px 24px; min-width: 300px; box-shadow: 0 16px 32px rgba(0,0,0,.6);
+    }
+    .modal-title { font-size: 14px; font-weight: 600; color: #e6edf3; margin-bottom: 12px; }
+    .modal-input {
+      width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      padding: 8px 10px; color: #e6edf3; font-size: 13px; outline: none; margin-bottom: 14px;
+    }
+    .modal-input:focus { border-color: #1f6feb; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal-btn { padding: 6px 16px; border-radius: 6px; border: none; font-size: 12px; cursor: pointer; font-weight: 500; transition: opacity .15s; }
+    .modal-btn:hover { opacity: .85; }
+    .modal-btn.primary { background: #1f6feb; color: #fff; }
+    .modal-btn.cancel { background: #21262d; color: #8b949e; }
+    #file-input { display: none; }
   </style>
 </head>
 <body>
-
   <div id="terminal-header">
     <div>SSH Session: <span id="server-name">Loading...</span></div>
-    <div style="cursor:pointer" onclick="window.close()">✕ Close</div>
+    <div class="header-right">
+      <div class="header-btn active" id="toggle-fb-btn" onclick="toggleFileBrowser()">📁 Files</div>
+      <div class="header-btn" onclick="uploadFile()">⬆ Upload</div>
+      <div class="header-btn" onclick="window.close()">✕ Close</div>
+    </div>
   </div>
-  <div id="terminal-container"></div>
 
-  <!-- Scripts -->
+  <div id="main-layout">
+    <div id="file-browser">
+      <div class="fb-header">
+        <span>Explorer</span>
+        <div class="fb-toolbar">
+          <button class="fb-icon-btn" title="Upload file here" onclick="uploadFile()">⬆</button>
+          <button class="fb-icon-btn" title="New folder" onclick="promptMkdir()">📁+</button>
+          <button class="fb-icon-btn" title="Parent dir" onclick="navigateUp()">↑</button>
+          <button class="fb-icon-btn" title="Refresh" onclick="reloadCurrent()">↻</button>
+          <button class="fb-icon-btn" title="Home" onclick="goHome()">⌂</button>
+        </div>
+      </div>
+      <div id="fb-path-bar">/</div>
+      <div id="fb-tree"></div>
+      <div id="fb-status">Waiting for SSH connection...</div>
+    </div>
+
+    <div id="resize-handle"></div>
+
+    <div id="terminal-area">
+      <div id="terminal-container"></div>
+    </div>
+  </div>
+
+  <div id="ctx-menu">
+    <div class="ctx-item" id="ctx-open" onclick="ctxOpen()"><span>📂</span> Open</div>
+    <div class="ctx-item" id="ctx-cd" onclick="ctxCd()"><span>➡</span> cd here</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" id="ctx-download" onclick="ctxDownload()"><span>⬇</span> Download</div>
+    <div class="ctx-item" onclick="uploadFile()"><span>⬆</span> Upload here</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" onclick="ctxDelete()"><span>🗑</span> Delete</div>
+  </div>
+
+  <div id="drop-overlay">⬆ Drop files to upload to current folder</div>
+
+  <div id="upload-progress">
+    <div class="up-title">Uploading...</div>
+    <div class="up-name" id="up-name"></div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+
+  <div id="input-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="modal-title">New Folder</div>
+      <input class="modal-input" id="modal-input" autocomplete="off"/>
+      <div class="modal-actions">
+        <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+        <button class="modal-btn primary" onclick="confirmModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" multiple />
+
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    // 1. Setup Xterm
-    const term = new Terminal({
+  (function() {
+    var token = localStorage.getItem('vault_token');
+    var urlParams = new URLSearchParams(window.location.search);
+    var slug = urlParams.get('slug');
+    var currentPath = '.';
+    var resolvedPath = '/';
+    var ctxEntry = null;
+    var modalCallback = null;
+    var termSocket = null;
+    var fbLoaded = false;
+
+    document.getElementById('server-name').textContent = slug || 'Unknown';
+
+    // ─── Terminal ──────────────────────────────────────────────────────────
+    var term = new Terminal({
       cursorBlink: true,
-      fontFamily: 'Consolas, "Courier New", monospace',
-      fontSize: 14,
-      theme: { background: '#000000', foreground: '#f0f0f0' }
+      fontFamily: 'JetBrains Mono, Consolas, "Courier New", monospace',
+      fontSize: 13, lineHeight: 1.3, scrollback: 5000,
+      theme: {
+        background: '#000000', foreground: '#e6edf3', cursor: '#58a6ff',
+        selectionBackground: '#1f6feb44',
+        black:'#0d1117', red:'#f85149', green:'#3fb950', yellow:'#d29922',
+        blue:'#58a6ff', magenta:'#bc8cff', cyan:'#39c5cf', white:'#b1bac4',
+        brightBlack:'#6e7681', brightRed:'#ff7b72', brightGreen:'#56d364',
+        brightYellow:'#e3b341', brightBlue:'#79c0ff', brightMagenta:'#d2a8ff',
+        brightCyan:'#56d4dd', brightWhite:'#f0f6fc',
+      }
     });
-    const fitAddon = new FitAddon.FitAddon();
+    var fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('terminal-container'));
     fitAddon.fit();
-
-    let termSocket;
-
-    // Resize handling
-    window.addEventListener('resize', () => {
+    window.addEventListener('resize', function() {
       fitAddon.fit();
-      if (termSocket && termSocket.connected) {
-        termSocket.emit("terminal_resize", { cols: term.cols, rows: term.rows });
-      }
+      if (termSocket && termSocket.connected)
+        termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
     });
 
-    // 2. Setup Socket.IO
-    const token = localStorage.getItem('vault_token');
-    if (!token) {
-      term.write('\r\n\x1b[31mError: No authentication token found. Please login on the dashboard first.\x1b[0m\r\n');
-    } else {
-      const urlParams = new URLSearchParams(window.location.search);
-      const slug = urlParams.get('slug');
-      document.getElementById('server-name').textContent = slug || 'Unknown';
-
-      if (!slug) {
-        term.write('\r\n\x1b[31mError: No server slug provided.\x1b[0m\r\n');
-      } else {
-        termSocket = io({
-          auth: { token: token }
-        });
-
-        termSocket.on("connect", () => {
-          term.clear();
-          term.write(`\r\n\x1b[32mConnected to API Vault Gateway.\x1b[0m\r\nStarting SSH session to ${slug}...\r\n`);
-          termSocket.emit("start_terminal", { token: token, slug: slug, cols: term.cols, rows: term.rows });
-        });
-
-        termSocket.on("connect_error", (err) => {
-          term.write(`\r\n\x1b[31mConnection Error: ${err.message}\x1b[0m\r\n`);
-        });
-
-        termSocket.on("terminal_output", (data) => {
-          term.write(data);
-        });
-
-        termSocket.on("disconnect", () => {
-          term.write("\r\n\x1b[31mDisconnected from gateway.\x1b[0m\r\n");
-        });
-
-        term.onData(data => {
-          termSocket.emit("terminal_input", data);
-        });
-      }
+    // ─── Toggle sidebar ────────────────────────────────────────────────────
+    var fbPanel = document.getElementById('file-browser');
+    var toggleBtn = document.getElementById('toggle-fb-btn');
+    function toggleFileBrowser() {
+      var collapsed = fbPanel.classList.toggle('collapsed');
+      toggleBtn.classList.toggle('active', !collapsed);
+      setTimeout(function() {
+        fitAddon.fit();
+        if (termSocket) termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+      }, 220);
     }
+    window.toggleFileBrowser = toggleFileBrowser;
+
+    // ─── Resize handle ─────────────────────────────────────────────────────
+    var rh = document.getElementById('resize-handle');
+    var isResizing = false;
+    rh.addEventListener('mousedown', function(e) {
+      isResizing = true; rh.classList.add('dragging'); e.preventDefault();
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!isResizing) return;
+      var rect = document.getElementById('main-layout').getBoundingClientRect();
+      var w = Math.max(160, Math.min(500, e.clientX - rect.left));
+      fbPanel.style.width = w + 'px';
+    });
+    window.addEventListener('mouseup', function() {
+      if (!isResizing) return;
+      isResizing = false; rh.classList.remove('dragging');
+      fitAddon.fit();
+      if (termSocket) termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+    });
+
+    // ─── File browser helpers ──────────────────────────────────────────────
+    function setStatus(msg, cls) {
+      var el = document.getElementById('fb-status');
+      el.textContent = msg; el.className = cls || '';
+    }
+    function fmtSize(b) {
+      if (b == null) return '';
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b/1024).toFixed(1) + ' K';
+      if (b < 1073741824) return (b/1048576).toFixed(1) + ' M';
+      return (b/1073741824).toFixed(1) + ' G';
+    }
+    var FILE_ICONS = {
+      py:'🐍', js:'🟨', ts:'🔷', sh:'⚡', bash:'⚡', zsh:'⚡',
+      json:'📋', yaml:'📋', yml:'📋', toml:'📋', xml:'📋', csv:'📋',
+      txt:'📄', md:'📝', log:'📜', conf:'⚙', cfg:'⚙', ini:'⚙', env:'🔒',
+      png:'🖼', jpg:'🖼', jpeg:'🖼', gif:'🖼', svg:'🖼', webp:'🖼',
+      zip:'📦', tar:'📦', gz:'📦', bz2:'📦', xz:'📦',
+      sql:'🗄', db:'🗄', sqlite:'🗄',
+      tf:'🌍', tfstate:'🌍', tfvars:'🌍',
+      key:'🔑', pem:'🔑', crt:'🔑', cer:'🔑', pub:'🔑',
+    };
+    function fileIcon(e) {
+      if (e.is_dir) return '📁';
+      var ext = e.name.split('.').pop().toLowerCase();
+      return FILE_ICONS[ext] || '📄';
+    }
+
+    function loadDir(path) {
+      if (!termSocket || !termSocket.connected) { setStatus('No connection', 'error'); return; }
+      setStatus('Loading…');
+      currentPath = path;
+      document.getElementById('fb-path-bar').textContent = path === '.' ? '~' : path;
+      termSocket.emit('sftp_ls', { path: path });
+    }
+    window.loadDir = loadDir;
+
+    function navigateUp() {
+      if (resolvedPath === '/' || resolvedPath === '') return;
+      var parts = resolvedPath.replace(/\/$/, '').split('/');
+      parts.pop();
+      loadDir(parts.join('/') || '/');
+    }
+    window.navigateUp = navigateUp;
+
+    function reloadCurrent() { loadDir(resolvedPath || currentPath); }
+    window.reloadCurrent = reloadCurrent;
+
+    function goHome() { loadDir('.'); }
+    window.goHome = goHome;
+
+    function renderTree(entries) {
+      var tree = document.getElementById('fb-tree');
+      tree.innerHTML = '';
+      if (resolvedPath && resolvedPath !== '/') {
+        var upDiv = document.createElement('div');
+        upDiv.className = 'fb-entry';
+        upDiv.innerHTML = '<span class="fb-icon">↑</span><span class="fb-name">..</span>';
+        upDiv.onclick = navigateUp;
+        tree.appendChild(upDiv);
+      }
+      entries.forEach(function(e) {
+        var div = document.createElement('div');
+        div.className = 'fb-entry';
+        var fullPath = resolvedPath.replace(/\/$/, '') + '/' + e.name;
+        div.innerHTML =
+          '<span class="fb-icon">' + fileIcon(e) + '</span>' +
+          '<span class="fb-name" title="' + e.name + '">' + e.name + '</span>' +
+          (!e.is_dir ? '<span class="fb-size">' + fmtSize(e.size) + '</span>' : '');
+        div.onclick = function() {
+          tree.querySelectorAll('.fb-entry').forEach(function(x){ x.classList.remove('selected'); });
+          div.classList.add('selected');
+          if (e.is_dir) loadDir(fullPath);
+        };
+        div.addEventListener('contextmenu', function(ev) {
+          ev.preventDefault();
+          tree.querySelectorAll('.fb-entry').forEach(function(x){ x.classList.remove('selected'); });
+          div.classList.add('selected');
+          ctxEntry = { name: e.name, path: fullPath, is_dir: e.is_dir };
+          showCtx(ev.clientX, ev.clientY, e.is_dir);
+        });
+        tree.appendChild(div);
+      });
+    }
+
+    // ─── Context menu ──────────────────────────────────────────────────────
+    var ctxMenu = document.getElementById('ctx-menu');
+    function showCtx(x, y, isDir) {
+      document.getElementById('ctx-open').style.display = isDir ? '' : 'none';
+      document.getElementById('ctx-cd').style.display = isDir ? '' : 'none';
+      document.getElementById('ctx-download').style.display = isDir ? 'none' : '';
+      ctxMenu.style.display = 'block';
+      var vw = window.innerWidth, vh = window.innerHeight;
+      ctxMenu.style.left = Math.min(x, vw-180) + 'px';
+      ctxMenu.style.top  = Math.min(y, vh-180) + 'px';
+    }
+    document.addEventListener('click', function() { ctxMenu.style.display = 'none'; });
+    window.ctxOpen = function() { if (ctxEntry && ctxEntry.is_dir) loadDir(ctxEntry.path); };
+    window.ctxCd   = function() {
+      if (ctxEntry && termSocket) {
+        termSocket.emit('terminal_input', 'cd ' + ctxEntry.path + '\r');
+        term.focus();
+      }
+    };
+    window.ctxDownload = function() { if (ctxEntry && !ctxEntry.is_dir) doDownload(ctxEntry.path); };
+    window.ctxDelete   = function() {
+      if (!ctxEntry) return;
+      if (!confirm('Delete ' + (ctxEntry.is_dir?'folder':'file') + ': ' + ctxEntry.name + '?')) return;
+      termSocket.emit('sftp_rm', { path: ctxEntry.path, is_dir: ctxEntry.is_dir });
+    };
+
+    // ─── Download ──────────────────────────────────────────────────────────
+    function doDownload(path) {
+      setStatus('Downloading…'); termSocket.emit('sftp_download', { path: path });
+    }
+
+    // ─── Upload ────────────────────────────────────────────────────────────
+    window.uploadFile = function() {
+      document.getElementById('file-input').value = '';
+      document.getElementById('file-input').click();
+    };
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      Array.from(e.target.files).forEach(sendFile);
+    });
+    var dragCnt = 0;
+    var dropOv = document.getElementById('drop-overlay');
+    document.addEventListener('dragenter', function(e) { e.preventDefault(); dragCnt++; dropOv.style.display='flex'; });
+    document.addEventListener('dragleave', function() { if(--dragCnt<=0){dragCnt=0;dropOv.style.display='none';} });
+    document.addEventListener('dragover',  function(e) { e.preventDefault(); });
+    document.addEventListener('drop', function(e) {
+      e.preventDefault(); dragCnt=0; dropOv.style.display='none';
+      Array.from(e.dataTransfer.files).forEach(sendFile);
+    });
+    function sendFile(file) {
+      var prog = document.getElementById('upload-progress');
+      var fill = document.getElementById('prog-fill');
+      prog.style.display = 'block';
+      document.getElementById('up-name').textContent = file.name;
+      fill.style.width = '0%';
+      var reader = new FileReader();
+      reader.onprogress = function(ev) {
+        if (ev.lengthComputable) fill.style.width = Math.round(ev.loaded/ev.total*80)+'%';
+      };
+      reader.onload = function(ev) {
+        fill.style.width = '90%';
+        var bytes = new Uint8Array(ev.target.result);
+        var b64 = btoa(String.fromCharCode.apply(null, bytes));
+        termSocket.emit('sftp_upload', { path: resolvedPath || currentPath, filename: file.name, content_b64: b64 });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ─── Modal ─────────────────────────────────────────────────────────────
+    window.promptMkdir = function() {
+      showModal('New Folder', 'folder name', function(name) {
+        if (!name.trim()) return;
+        var newPath = resolvedPath.replace(/\/$/, '') + '/' + name.trim();
+        termSocket.emit('sftp_mkdir', { path: newPath });
+      });
+    };
+    function showModal(title, placeholder, cb) {
+      document.getElementById('modal-title').textContent = title;
+      var inp = document.getElementById('modal-input');
+      inp.value = ''; inp.placeholder = placeholder; modalCallback = cb;
+      document.getElementById('input-modal').style.display = 'flex';
+      setTimeout(function(){ inp.focus(); }, 50);
+    }
+    window.closeModal = function() { document.getElementById('input-modal').style.display='none'; modalCallback=null; };
+    window.confirmModal = function() {
+      var val = document.getElementById('modal-input').value; closeModal();
+      if (modalCallback) modalCallback(val);
+    };
+    document.getElementById('modal-input').addEventListener('keydown', function(e) {
+      if (e.key==='Enter') confirmModal(); if (e.key==='Escape') closeModal();
+    });
+
+    // ─── Socket.IO ─────────────────────────────────────────────────────────
+    if (!token) { term.write('\r\n\x1b[31mNo auth token found.\x1b[0m\r\n'); return; }
+    if (!slug)  { term.write('\r\n\x1b[31mNo server slug.\x1b[0m\r\n'); return; }
+
+    termSocket = io({ auth: { token: token } });
+
+    termSocket.on('connect', function() {
+      term.clear();
+      term.write('\r\n\x1b[32mConnected.\x1b[0m Starting SSH to \x1b[36m' + slug + '\x1b[0m...\r\n');
+      termSocket.emit('start_terminal', { token: token, slug: slug, cols: term.cols, rows: term.rows });
+      // trigger file browser load after brief delay
+      setTimeout(function() {
+        if (!fbLoaded) { fbLoaded = true; loadDir('.'); }
+      }, 1500);
+    });
+
+    termSocket.on('connect_error', function(err) {
+      term.write('\r\n\x1b[31mConnect Error: ' + err.message + '\x1b[0m\r\n');
+      setStatus('Connection failed', 'error');
+    });
+
+    termSocket.on('terminal_output', function(data) { term.write(data); });
+
+    termSocket.on('disconnect', function() {
+      term.write('\r\n\x1b[31mDisconnected.\x1b[0m\r\n');
+      setStatus('Disconnected', 'error');
+    });
+
+    term.onData(function(data) { termSocket.emit('terminal_input', data); });
+
+    // ─── SFTP responses ────────────────────────────────────────────────────
+    termSocket.on('sftp_ls_result', function(data) {
+      resolvedPath = data.path;
+      document.getElementById('fb-path-bar').textContent = data.path;
+      renderTree(data.entries);
+      setStatus(data.entries.length + ' items', 'success');
+    });
+
+    termSocket.on('sftp_error', function(msg) {
+      setStatus('⚠ ' + msg, 'error');
+    });
+
+    termSocket.on('sftp_download_result', function(data) {
+      setStatus('Downloaded: ' + data.filename, 'success');
+      var bytes = Uint8Array.from(atob(data.content_b64), function(c){ return c.charCodeAt(0); });
+      var blob = new Blob([bytes], { type: data.mime });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = data.filename; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+    });
+
+    termSocket.on('sftp_upload_result', function(data) {
+      document.getElementById('prog-fill').style.width = '100%';
+      setTimeout(function(){ document.getElementById('upload-progress').style.display='none'; }, 1200);
+      setStatus('Uploaded: ' + data.path.split('/').pop(), 'success');
+      loadDir(resolvedPath);
+    });
+
+    termSocket.on('sftp_mkdir_result', function(data) {
+      setStatus('Created: ' + data.path.split('/').pop(), 'success');
+      loadDir(resolvedPath);
+    });
+
+    termSocket.on('sftp_rm_result', function(data) {
+      setStatus('Deleted: ' + data.path.split('/').pop(), 'success');
+      loadDir(resolvedPath);
+    });
+  })();
   </script>
 </body>
 </html>

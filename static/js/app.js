@@ -1879,6 +1879,11 @@ window.openServerMonitor = async function(slug, title) {
   document.getElementById('mon-live-text').textContent = 'Connecting…';
   document.getElementById('mon-live-badge').className = 'badge badge-amber';
   
+  const winNotice = document.getElementById('mon-windows-notice');
+  if (winNotice) winNotice.classList.add('hidden');
+  const metricSections = document.getElementById('mon-metric-sections');
+  if (metricSections) metricSections.style.opacity = '1';
+
   openModal('modal-server-monitor');
   await fetchMonitorMetrics();
   startMonitorTimer();
@@ -1938,7 +1943,54 @@ async function fetchMonitorMetrics() {
   }
 }
 
+window.copyWinGuideCmd = function() {
+  const code = document.getElementById('mon-win-code')?.textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(() => {
+      showToast('Đã copy lệnh PowerShell kích hoạt OpenSSH', 'success');
+    }).catch(() => {
+      showToast('Vui lòng bôi đen và copy thủ công', 'info');
+    });
+  } else {
+    showToast('Vui lòng bôi đen và copy thủ công', 'info');
+  }
+};
+
 function renderMonitorData(data) {
+  const winNotice = document.getElementById('mon-windows-notice');
+  const metricSections = document.getElementById('mon-metric-sections');
+
+  if (data.status === 'unsupported') {
+    document.getElementById('mon-live-text').textContent = '⚠️ Cần bật OpenSSH';
+    document.getElementById('mon-live-badge').className = 'badge badge-amber';
+
+    if (winNotice) {
+      winNotice.classList.remove('hidden');
+      if (data.message) {
+        const msgEl = document.getElementById('mon-win-msg');
+        if (msgEl) msgEl.textContent = data.message;
+      }
+    }
+    if (metricSections) {
+      metricSections.style.opacity = '0.35';
+    }
+
+    document.getElementById('mon-uptime').textContent = data.uptime || 'N/A (RDP)';
+    document.getElementById('mon-hostname').textContent = data.hostname || '—';
+    document.getElementById('mon-kernel').textContent = data.os || 'Windows Server (RDP)';
+
+    // Stop continuous polling for unsupported servers
+    stopMonitorTimer();
+    return;
+  }
+
+  if (winNotice) {
+    winNotice.classList.add('hidden');
+  }
+  if (metricSections) {
+    metricSections.style.opacity = '1';
+  }
+
   document.getElementById('mon-live-text').textContent = 'Live';
   document.getElementById('mon-live-badge').className = 'badge badge-green';
 

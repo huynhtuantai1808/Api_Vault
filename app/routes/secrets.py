@@ -640,4 +640,24 @@ def get_secret_metrics(slug: str):
         metrics = collect_server_metrics(owner, slug)
         return jsonify(metrics), 200
     except Exception as e:
-        return jsonify({"error": f"Failed to collect metrics: {str(e)}", "status": "offline"}), 502
+        err_msg = str(e)
+        os_type = (existing.get("os_type") or "linux").lower()
+        if os_type == "windows" or "session" in err_msg.lower() or "banner" in err_msg.lower():
+            return jsonify({
+                "status": "unsupported",
+                "os_type": "windows",
+                "hostname": existing.get("name") or slug,
+                "host": existing.get("host"),
+                "port": existing.get("port") or 3389,
+                "protocol": "RDP",
+                "uptime": "N/A (RDP)",
+                "os": "Windows Server",
+                "message": f"Máy chủ Windows ({existing.get('host')}) hiện đang kết nối qua cổng RDP {existing.get('port', 3389)}. Giao thức RDP chỉ hỗ trợ Remote Desktop, không hỗ trợ giao diện đọc chỉ số phần cứng.",
+                "guide": (
+                    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0\n"
+                    "Start-Service sshd\n"
+                    "Set-Service -Name sshd -StartupType 'Automatic'\n"
+                    "New-NetFirewallRule -Name 'OpenSSH-Server' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22"
+                )
+            }), 200
+        return jsonify({"error": f"Failed to collect metrics: {err_msg}", "status": "offline"}), 502

@@ -609,6 +609,7 @@ function renderSecrets(secrets) {
           <td><div class="tags-list">${(s.tags || []).map(t => `<span class="badge badge-gray">${t}</span>`).join('')}</div></td>
           <td>
             <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="openServerMonitor('${s._id}', '${(s.name || s._id).replace(/'/g, "\\'")}')" title="Remote Monitoring (CPU, RAM, Disk, Net, Uptime)">📊</button>
               <button class="btn btn-ghost btn-sm" onclick="viewSecret('${s._id}')">👁 View</button>
               <button class="btn btn-ghost btn-sm" onclick="editSecret('${s._id}')">✏️</button>
               <button class="btn btn-danger btn-sm" onclick="deleteSecret('${s._id}')">🗑</button>
@@ -861,11 +862,20 @@ async function viewSecret(slug) {
   
   const consoleBtn = document.getElementById('btn-open-console');
   const rdpBtn = document.getElementById('btn-download-rdp');
+  const monBtn = document.getElementById('btn-open-monitor');
   
   if (data.auth_type === 'password' || data.auth_type === 'ssh_key') {
     consoleBtn.classList.remove('hidden');
     consoleBtn.onclick = () => openWebConsole(slug, data.name || slug, data.os_type || 'linux');
     
+    if (monBtn) {
+      monBtn.classList.remove('hidden');
+      monBtn.onclick = () => {
+        closeModal('modal-view-secret');
+        openServerMonitor(slug, data.name || slug);
+      };
+    }
+
     // Only show RDP for Windows servers
     if (data.os_type === 'windows') {
       rdpBtn.classList.remove('hidden');
@@ -876,6 +886,7 @@ async function viewSecret(slug) {
   } else {
     consoleBtn.classList.add('hidden');
     rdpBtn.classList.add('hidden');
+    if (monBtn) monBtn.classList.add('hidden');
   }
   
   const cmdGroup = document.getElementById('vs-cmd-group');
@@ -1855,6 +1866,148 @@ window.copySshVal = function() {
     showToast('SSH Key copied to clipboard', 'success');
   });
 };
+
+// ─── Remote Monitoring Logic ───────────────────────────────────────────────
+let _currentMonSlug = null;
+let _currentMonTimer = null;
+let _isMonFetching = false;
+
+window.openServerMonitor = async function(slug, title) {
+  _currentMonSlug = slug;
+  document.getElementById('mon-server-title').textContent = `📊 Monitoring: ${title || slug}`;
+  document.getElementById('mon-server-subtitle').textContent = `Server ID: ${slug}`;
+  document.getElementById('mon-live-text').textContent = 'Connecting…';
+  document.getElementById('mon-live-badge').className = 'badge badge-amber';
+  
+  openModal('modal-server-monitor');
+  await fetchMonitorMetrics();
+  startMonitorTimer();
+};
+
+window.closeServerMonitor = function() {
+  stopMonitorTimer();
+  _currentMonSlug = null;
+  closeModal('modal-server-monitor');
+};
+
+function startMonitorTimer() {
+  stopMonitorTimer();
+  const select = document.getElementById('mon-refresh-interval');
+  const intVal = select ? parseInt(select.value, 10) : 3000;
+  if (intVal > 0 && _currentMonSlug) {
+    _currentMonTimer = setInterval(() => {
+      fetchMonitorMetrics();
+    }, intVal);
+  }
+}
+
+function stopMonitorTimer() {
+  if (_currentMonTimer) {
+    clearInterval(_currentMonTimer);
+    _currentMonTimer = null;
+  }
+}
+
+window.onChangeMonInterval = function() {
+  startMonitorTimer();
+};
+
+window.refreshMonitor = async function() {
+  await fetchMonitorMetrics();
+};
+
+async function fetchMonitorMetrics() {
+  if (!_currentMonSlug || _isMonFetching) return;
+  _isMonFetching = true;
+  try {
+    const res = await apiFetch(`/secrets/${_currentMonSlug}/metrics`);
+    if (!res?.ok) {
+      const errData = await res.json().catch(() => ({}));
+      document.getElementById('mon-live-text').textContent = 'Offline / Error';
+      document.getElementById('mon-live-badge').className = 'badge badge-red';
+      showToast(errData.error || 'Failed to fetch metrics', 'error');
+      return;
+    }
+    const data = await res.json();
+    renderMonitorData(data);
+  } catch (e) {
+    document.getElementById('mon-live-text').textContent = 'Connection Error';
+    document.getElementById('mon-live-badge').className = 'badge badge-red';
+  } finally {
+    _isMonFetching = false;
+  }
+}
+
+function renderMonitorData(data) {
+  document.getElementById('mon-live-text').textContent = 'Live';
+  document.getElementById('mon-live-badge').className = 'badge badge-green';
+
+  // Uptime, Hostname, OS
+  document.getElementById('mon-uptime').textContent = data.uptime || '—';
+  document.getElementById('mon-hostname').textContent = data.hostname || '—';
+  document.getElementById('mon-kernel').textContent = data.os || '—';
+
+  // CPU
+  const cpuPct = data.cpu?.percent ?? 0;
+  document.getElementById('mon-cpu-pct').textContent = `${cpuPct}%`;
+  const cpuBar = document.getElementById('mon-cpu-bar');
+  if (cpuBar) {
+    cpuBar.style.width = `${cpuPct}%`;
+    cpuBar.style.background = cpuPct > 85 ? 'var(--accent-red)' : (cpuPct > 65 ? 'var(--accent-amber)' : 'var(--accent-blue)');
+  }
+  document.getElementById('mon-cpu-cores').textContent = data.cpu?.cores ? `${data.cpu.cores} Cores` : '—';
+  document.getElementById('mon-cpu-load').textContent = (data.cpu?.load || []).map(x => typeof x === 'number' ? x.toFixed(2) : x).join('  ');
+
+  // Memory
+  const ramPct = data.memory?.percent ?? 0;
+  document.getElementById('mon-ram-pct').textContent = `${ramPct}%`;
+  const ramBar = document.getElementById('mon-ram-bar');
+  if (ramBar) {
+    ramBar.style.width = `${ramPct}%`;
+    ramBar.style.background = ramPct > 85 ? 'var(--accent-red)' : (ramPct > 70 ? 'var(--accent-amber)' : 'var(--accent-purple)');
+  }
+  document.getElementById('mon-ram-used').textContent = `${data.memory?.used_gb || 0} GB`;
+  document.getElementById('mon-ram-total').textContent = `${data.memory?.total_gb || 0} GB`;
+
+  // Disks
+  const diskTbody = document.getElementById('mon-disks-body');
+  if (data.disk && data.disk.length > 0) {
+    diskTbody.innerHTML = data.disk.map(d => {
+      const dColor = d.percent > 85 ? 'var(--accent-red)' : (d.percent > 70 ? 'var(--accent-amber)' : 'var(--accent-green)');
+      return `
+        <tr>
+          <td><strong style="color:var(--accent-blue)">${d.mount}</strong></td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">${d.filesystem}</td>
+          <td>${d.used_gb} GB / ${d.size_gb} GB</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${d.percent}%;background:${dColor};border-radius:3px"></div>
+              </div>
+              <span style="font-size:11px;font-weight:600;min-width:32px;color:${dColor}">${d.percent}%</span>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } else {
+    diskTbody.innerHTML = '<tr><td colspan="4" class="loading-cell">No disks detected</td></tr>';
+  }
+
+  // Network
+  const netTbody = document.getElementById('mon-net-body');
+  if (data.network && data.network.length > 0) {
+    netTbody.innerHTML = data.network.map(n => `
+      <tr>
+        <td><span class="badge badge-gray mono">🔌 ${n.interface}</span></td>
+        <td style="color:var(--accent-green)">⬇ ${n.rx_human}</td>
+        <td style="color:var(--accent-blue)">⬆ ${n.tx_human}</td>
+      </tr>
+    `).join('');
+  } else {
+    netTbody.innerHTML = '<tr><td colspan="3" class="loading-cell">No network interfaces detected</td></tr>';
+  }
+}
 
 
 if (authToken && currentUser) {

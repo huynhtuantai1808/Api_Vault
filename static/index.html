@@ -807,6 +807,7 @@
         <div style="display:flex;align-items:center;gap:12px">
           <h3 id="vs-title">View Secret</h3>
           <button id="btn-download-rdp" class="btn btn-secondary btn-sm hidden">💻 Download .rdp</button>
+          <button id="btn-open-monitor" class="btn btn-secondary btn-sm hidden">📊 Monitoring</button>
           <button id="btn-open-console" class="btn btn-primary btn-sm hidden" onclick="openWebConsole()">🖥️ Web Console</button>
         </div>
         <button class="modal-close" onclick="closeModal('modal-view-secret')">✕</button>
@@ -860,6 +861,129 @@
             <button class="btn btn-ghost btn-sm" onclick="copyText(encodeURIComponent(document.getElementById('vs-cmd-val').textContent))">📋 Copy</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Remote Server Monitoring Modal -->
+  <div id="modal-server-monitor" class="modal-overlay hidden">
+    <div class="modal" style="width: 780px; max-width: 95vw;">
+      <div class="modal-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:22px">📊</span>
+          <div>
+            <h3 id="mon-server-title" style="margin:0;font-size:16px;font-weight:600">Remote Monitoring</h3>
+            <div id="mon-server-subtitle" style="font-size:11px;color:var(--text-muted)">Connecting...</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div id="mon-live-badge" class="badge badge-amber" style="display:flex;align-items:center;gap:5px;font-size:11px">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor"></span>
+            <span id="mon-live-text">Connecting…</span>
+          </div>
+          <select id="mon-refresh-interval" class="form-control" style="padding:2px 8px;font-size:11px;height:28px;background:#1a202c;color:#e2e8f0;border-color:var(--border);" onchange="onChangeMonInterval()">
+            <option value="2000">Auto: 2s</option>
+            <option value="3000" selected>Auto: 3s</option>
+            <option value="5000">Auto: 5s</option>
+            <option value="0">Manual</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="refreshMonitor()" title="Refresh now" style="padding:4px 8px">🔄</button>
+          <button class="modal-close" onclick="closeServerMonitor()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding:20px 24px">
+        <!-- Top Info Strip (Uptime, Hostname, OS) -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:18px">
+          <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">⏱️ System Uptime</div>
+            <div id="mon-uptime" style="font-size:16px;font-weight:700;color:var(--accent-green);margin-top:2px">—</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">🏷️ Hostname</div>
+            <div id="mon-hostname" class="mono" style="font-size:14px;font-weight:600;color:var(--text-primary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">🐧 OS & Kernel</div>
+            <div id="mon-kernel" style="font-size:12px;color:var(--text-secondary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div>
+          </div>
+        </div>
+
+        <!-- 2 Main Metric Cards: CPU & RAM -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
+          <!-- CPU Card -->
+          <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px">⚡ CPU Usage</span>
+              <span id="mon-cpu-pct" style="font-size:18px;font-weight:700;color:var(--accent-blue)">0%</span>
+            </div>
+            <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;margin-bottom:12px">
+              <div id="mon-cpu-bar" style="height:100%;width:0%;background:var(--accent-blue);border-radius:4px;transition:width 0.4s ease, background 0.3s"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-secondary)">
+              <span>Cores: <strong id="mon-cpu-cores" style="color:var(--text-primary)">—</strong></span>
+              <span>Load: <strong id="mon-cpu-load" class="mono" style="color:var(--text-primary)">—</strong></span>
+            </div>
+          </div>
+
+          <!-- Memory Card -->
+          <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px">🧠 RAM Memory</span>
+              <span id="mon-ram-pct" style="font-size:18px;font-weight:700;color:var(--accent-purple)">0%</span>
+            </div>
+            <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;margin-bottom:12px">
+              <div id="mon-ram-bar" style="height:100%;width:0%;background:var(--accent-purple);border-radius:4px;transition:width 0.4s ease, background 0.3s"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-secondary)">
+              <span>Used: <strong id="mon-ram-used" style="color:var(--text-primary)">—</strong></span>
+              <span>Total: <strong id="mon-ram-total" style="color:var(--text-primary)">—</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Disks Section -->
+        <div style="margin-bottom:18px">
+          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+            💾 Disk Partitions
+          </div>
+          <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+            <table class="data-table" style="margin:0;font-size:12px">
+              <thead>
+                <tr style="background:rgba(255,255,255,0.04)">
+                  <th>Mount</th>
+                  <th>Filesystem</th>
+                  <th>Used / Size</th>
+                  <th style="width:140px">Usage %</th>
+                </tr>
+              </thead>
+              <tbody id="mon-disks-body">
+                <tr><td colspan="4" class="loading-cell">Loading disk info...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Network Section -->
+        <div>
+          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+            🌐 Network Interfaces
+          </div>
+          <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+            <table class="data-table" style="margin:0;font-size:12px">
+              <thead>
+                <tr style="background:rgba(255,255,255,0.04)">
+                  <th>Interface</th>
+                  <th>Received (RX)</th>
+                  <th>Transmitted (TX)</th>
+                </tr>
+              </thead>
+              <tbody id="mon-net-body">
+                <tr><td colspan="3" class="loading-cell">Loading network info...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>

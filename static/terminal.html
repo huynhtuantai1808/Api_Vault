@@ -123,12 +123,34 @@
     .modal-btn.primary { background: #1f6feb; color: #fff; }
     .modal-btn.cancel { background: #21262d; color: #8b949e; }
     #file-input { display: none; }
+    #terminal-mon-bar {
+      background: #161b22; border-bottom: 1px solid #30363d; padding: 10px 14px;
+      overflow-x: auto; flex-shrink: 0; transition: max-height 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
+      max-height: 140px; opacity: 1;
+    }
+    #terminal-mon-bar.collapsed {
+      max-height: 0 !important; padding: 0 14px !important; border-bottom: none !important;
+      overflow: hidden !important; opacity: 0 !important;
+    }
+    .tmon-inner { display: flex; gap: 12px; align-items: stretch; min-width: 680px; }
+    .tmon-card {
+      background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+      padding: 6px 10px; flex: 1; min-width: 130px; display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .tmon-label { font-size: 10.5px; color: #8b949e; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .tmon-val { font-size: 14px; font-weight: 700; color: #58a6ff; margin: 2px 0; }
+    .tmon-sub { font-size: 10px; color: #6e7681; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tmon-bar { height: 4px; background: #21262d; border-radius: 2px; overflow: hidden; margin: 3px 0; }
+    .tmon-fill { height: 100%; width: 0%; background: #58a6ff; border-radius: 2px; transition: width 0.4s ease; }
+    .tmon-fill.purple { background: #bc8cff; }
+    .tmon-disks-list, .tmon-net-list { font-size: 10.5px; color: #c9d1d9; max-height: 48px; overflow-y: auto; }
   </style>
 </head>
 <body>
   <div id="terminal-header">
     <div>SSH Session: <span id="server-name">Loading...</span></div>
     <div class="header-right">
+      <div class="header-btn" id="toggle-mon-btn" onclick="toggleMonitor()">📊 Monitor</div>
       <div class="header-btn active" id="toggle-fb-btn" onclick="toggleFileBrowser()">📁 Files</div>
       <div class="header-btn" onclick="uploadFile()">⬆ Upload</div>
       <div class="header-btn" onclick="window.close()">✕ Close</div>
@@ -155,6 +177,36 @@
     <div id="resize-handle"></div>
 
     <div id="terminal-area">
+      <!-- Collapsible Monitor Bar / HUD -->
+      <div id="terminal-mon-bar" class="collapsed">
+        <div class="tmon-inner">
+          <div class="tmon-card">
+            <div class="tmon-label">⏱️ Uptime & Host</div>
+            <div class="tmon-val" id="tmon-uptime">—</div>
+            <div class="tmon-sub" id="tmon-host">—</div>
+          </div>
+          <div class="tmon-card">
+            <div class="tmon-label">⚡ CPU (<span id="tmon-cpu-cores">—</span>)</div>
+            <div class="tmon-val" id="tmon-cpu-val">0%</div>
+            <div class="tmon-bar"><div id="tmon-cpu-fill" class="tmon-fill"></div></div>
+            <div class="tmon-sub" id="tmon-cpu-load">Load: —</div>
+          </div>
+          <div class="tmon-card">
+            <div class="tmon-label">🧠 Memory (RAM)</div>
+            <div class="tmon-val" id="tmon-ram-val">0%</div>
+            <div class="tmon-bar"><div id="tmon-ram-fill" class="tmon-fill purple"></div></div>
+            <div class="tmon-sub" id="tmon-ram-sub">— / —</div>
+          </div>
+          <div class="tmon-card" style="flex: 1.2">
+            <div class="tmon-label">💾 Disks (<span id="tmon-disk-count">—</span>)</div>
+            <div id="tmon-disks" class="tmon-disks-list">Loading...</div>
+          </div>
+          <div class="tmon-card">
+            <div class="tmon-label">🌐 Network</div>
+            <div id="tmon-net" class="tmon-net-list">Loading...</div>
+          </div>
+        </div>
+      </div>
       <div id="terminal-container"></div>
     </div>
   </div>
@@ -325,6 +377,13 @@
         upDiv.onclick = navigateUp;
         tree.appendChild(upDiv);
       }
+      if (entries.length === 0) {
+        var emptyDiv = document.createElement('div');
+        emptyDiv.style.cssText = 'padding: 12px; font-size: 11px; color: #484f58; text-align: center;';
+        emptyDiv.textContent = '(empty folder)';
+        tree.appendChild(emptyDiv);
+        return;
+      }
       entries.forEach(function(e) {
         var div = document.createElement('div');
         div.className = 'fb-entry';
@@ -449,11 +508,26 @@
     termSocket.on('connect', function() {
       term.clear();
       term.write('\r\n\x1b[32mConnected.\x1b[0m Starting SSH to \x1b[36m' + slug + '\x1b[0m...\r\n');
+      setStatus('Connecting…');
       termSocket.emit('start_terminal', { token: token, slug: slug, cols: term.cols, rows: term.rows });
-      // trigger file browser load after brief delay
+    });
+
+    termSocket.on('terminal_ready', function() {
+      setStatus('Connecting SFTP…');
+      // Safety fallback: if sftp_ready doesn't fire within 8s, trigger loadDir
       setTimeout(function() {
-        if (!fbLoaded) { fbLoaded = true; loadDir('.'); }
-      }, 1500);
+        if (!fbLoaded) {
+          fbLoaded = true;
+          loadDir('.');
+        }
+      }, 8000);
+    });
+
+    termSocket.on('sftp_ready', function() {
+      if (!fbLoaded) {
+        fbLoaded = true;
+        loadDir('.');
+      }
     });
 
     termSocket.on('connect_error', function(err) {
@@ -472,6 +546,7 @@
 
     // ─── SFTP responses ────────────────────────────────────────────────────
     termSocket.on('sftp_ls_result', function(data) {
+      fbLoaded = true;
       resolvedPath = data.path;
       document.getElementById('fb-path-bar').textContent = data.path;
       renderTree(data.entries);
@@ -508,6 +583,82 @@
       setStatus('Deleted: ' + data.path.split('/').pop(), 'success');
       loadDir(resolvedPath);
     });
+
+    // ─── Remote Monitoring in Terminal ─────────────────────────────────────
+    var monBar = document.getElementById('terminal-mon-bar');
+    var monBtn = document.getElementById('toggle-mon-btn');
+    var monTimer = null;
+
+    function toggleMonitor() {
+      var isCollapsed = monBar.classList.toggle('collapsed');
+      monBtn.classList.toggle('active', !isCollapsed);
+      if (!isCollapsed) {
+        fetchTerminalMetrics();
+        monTimer = setInterval(fetchTerminalMetrics, 3000);
+      } else {
+        if (monTimer) { clearInterval(monTimer); monTimer = null; }
+      }
+      setTimeout(function() {
+        fitAddon.fit();
+        if (termSocket && termSocket.connected)
+          termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+      }, 260);
+    }
+    window.toggleMonitor = toggleMonitor;
+
+    function fetchTerminalMetrics() {
+      if (termSocket && termSocket.connected) {
+        termSocket.emit('terminal_metrics');
+      }
+    }
+
+    termSocket.on('terminal_metrics_result', function(data) {
+      renderTerminalMetrics(data);
+    });
+
+    termSocket.on('terminal_metrics_error', function(err) {
+      document.getElementById('tmon-uptime').textContent = 'Error';
+    });
+
+    function renderTerminalMetrics(data) {
+      document.getElementById('tmon-uptime').textContent = data.uptime || '—';
+      document.getElementById('tmon-host').textContent = data.hostname || '—';
+      
+      var cpuPct = data.cpu?.percent ?? 0;
+      document.getElementById('tmon-cpu-cores').textContent = data.cpu?.cores ? data.cpu.cores + 'c' : '';
+      document.getElementById('tmon-cpu-val').textContent = cpuPct + '%';
+      var cpuFill = document.getElementById('tmon-cpu-fill');
+      cpuFill.style.width = cpuPct + '%';
+      cpuFill.style.background = cpuPct > 85 ? '#f85149' : (cpuPct > 65 ? '#d29922' : '#58a6ff');
+      document.getElementById('tmon-cpu-load').textContent = 'Load: ' + (data.cpu?.load || []).map(function(x){ return typeof x==='number'?x.toFixed(2):x; }).join(' ');
+
+      var ramPct = data.memory?.percent ?? 0;
+      document.getElementById('tmon-ram-val').textContent = ramPct + '%';
+      var ramFill = document.getElementById('tmon-ram-fill');
+      ramFill.style.width = ramPct + '%';
+      ramFill.style.background = ramPct > 85 ? '#f85149' : (ramPct > 70 ? '#d29922' : '#bc8cff');
+      document.getElementById('tmon-ram-sub').textContent = (data.memory?.used_gb || 0) + ' / ' + (data.memory?.total_gb || 0) + ' GB';
+
+      var diskList = document.getElementById('tmon-disks');
+      if (data.disk && data.disk.length > 0) {
+        document.getElementById('tmon-disk-count').textContent = data.disk.length;
+        diskList.innerHTML = data.disk.map(function(d) {
+          var color = d.percent > 85 ? '#f85149' : (d.percent > 70 ? '#d29922' : '#3fb950');
+          return '<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span>' + d.mount + '</span><span style="color:' + color + '">' + d.used_gb + 'G/' + d.size_gb + 'G (' + d.percent + '%)</span></div>';
+        }).join('');
+      } else {
+        diskList.textContent = 'No disks';
+      }
+
+      var netList = document.getElementById('tmon-net');
+      if (data.network && data.network.length > 0) {
+        netList.innerHTML = data.network.map(function(n) {
+          return '<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span>' + n.interface + '</span><span>⬇' + n.rx_human + ' ⬆' + n.tx_human + '</span></div>';
+        }).join('');
+      } else {
+        netList.textContent = 'No net';
+      }
+    }
   })();
   </script>
 </body>

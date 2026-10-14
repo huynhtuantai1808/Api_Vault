@@ -613,3 +613,31 @@ def delete_secret(slug: str):
     )
 
     return jsonify({"message": f"Secret '{slug}' permanently deleted"}), 200
+
+
+@secrets_bp.route("/<slug>/metrics", methods=["GET"])
+@require_auth("secrets:read")
+def get_secret_metrics(slug: str):
+    """
+    Collect live remote monitoring metrics (CPU, RAM, DISK, Network, Uptime) for a server.
+    """
+    base_path = _get_user_vault_path()
+    existing = VaultClient.kv_read(f"{base_path}/{slug}")
+    if not existing:
+        return jsonify({"error": "Secret not found"}), 404
+
+    owner = "admin"
+    if g.get("current_user"):
+        owner = g.current_user.username
+    elif g.get("current_api_key"):
+        from app.models.user import User
+        u = User.query.get(g.current_api_key.user_id)
+        if u:
+            owner = u.username
+
+    from app.utils.monitoring import collect_server_metrics
+    try:
+        metrics = collect_server_metrics(owner, slug)
+        return jsonify(metrics), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to collect metrics: {str(e)}", "status": "offline"}), 502

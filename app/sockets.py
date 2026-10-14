@@ -68,6 +68,8 @@ def on_start_terminal(data):
     sid = request.sid
     token = data.get("token")
     slug = data.get("slug")
+    cols = data.get("cols", 80)
+    rows = data.get("rows", 24)
     
     # 1. Verify token manually
     try:
@@ -177,7 +179,7 @@ def on_start_terminal(data):
             password = secret.get("password")
             ssh.connect(hostname=host, port=port, username=username, password=password, timeout=10, allow_agent=False, look_for_keys=False)
             
-        chan = ssh.invoke_shell(term="xterm-256color")
+        chan = ssh.invoke_shell(term="xterm-256color", width=cols, height=rows)
         chan.setblocking(0)
         
         # Save session

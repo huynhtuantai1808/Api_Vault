@@ -34,12 +34,25 @@ services:
       VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
     ports:
       - "8200:8200"
-    command: server
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        (
+          while ! wget -qO- http://127.0.0.1:8200/v1/sys/init >/dev/null 2>&1; do sleep 1; done
+          if [ -f /vault/file/init.json ]; then
+            INIT_STATUS=$$(wget -qO- http://127.0.0.1:8200/v1/sys/init 2>/dev/null)
+            if echo "$$INIT_STATUS" | grep -q '"initialized":true'; then
+              UNSEAL_KEY=$$(grep -A 1 '"unseal_keys_b64":' /vault/file/init.json | tail -n 1 | tr -d '", ')
+              vault operator unseal -address=http://127.0.0.1:8200 "$$UNSEAL_KEY" || true
+            fi
+          fi
+        ) &
+        exec /usr/local/bin/docker-entrypoint.sh server
     volumes:
       - vault_data:/vault/file # ← Lưu data
       - vault_logs:/vault/logs
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8200/v1/sys/health || exit 0" ]
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8200/v1/sys/init >/dev/null 2>&1" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -114,7 +127,7 @@ services:
         echo "│  KV path : secret/                           │"
         echo "│  SSH role: $${VAULT_SSH_ROLE:-my-role}        │"
         echo "└─────────────────────────────────────────────┘"
-    restart: always
+    restart: "no"
 
   # ─────────────────────────────────────────────
   # Apache Guacamole Daemon (guacd) for RDP
@@ -145,7 +158,7 @@ services:
       DATABASE_URL: postgresql://vault_user:vault_pass@postgres:5432/api_vault
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-secret-change-me}
       # Vault – point to the internal service, override via .env if using external
-      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
+      VAULT_ADDR: ${DOCKER_VAULT_ADDR:-http://vault:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-root}
       VAULT_SSH_ROLE: ${VAULT_SSH_ROLE:-my-role}
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}

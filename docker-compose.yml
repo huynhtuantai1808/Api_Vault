@@ -145,6 +145,7 @@ services:
   api_vault:
     build: .
     container_name: api_vault_app
+    command: ["sh", "-c", "flask db upgrade && gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker --bind 0.0.0.0:5055 --workers 1 --timeout 120 'run:app'"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,6 +153,8 @@ services:
         condition: service_healthy
       vault-init:
         condition: service_completed_successfully
+      guacd:
+        condition: service_started
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${SECRET_KEY:-super-secret-change-me-in-production}
@@ -165,6 +168,8 @@ services:
       VAULT_SSH_MOUNT: ${VAULT_SSH_MOUNT:-ssh}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123456}
+      GUACD_HOST: ${GUACD_HOST:-guacd}
+      GUACD_PORT: ${GUACD_PORT:-4822}
     ports:
       - "5055:5055"
     volumes:

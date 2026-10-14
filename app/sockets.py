@@ -249,7 +249,10 @@ def on_start_rdp(data):
         password = secret.get("password", "")
         
         from app.utils.guac_client import GuacamoleClient
-        guac = GuacamoleClient(host='127.0.0.1', port=4822)
+        import os
+        guacd_host = current_app.config.get("GUACD_HOST", os.getenv("GUACD_HOST", "guacd"))
+        guacd_port = int(current_app.config.get("GUACD_PORT", os.getenv("GUACD_PORT", 4822)))
+        guac = GuacamoleClient(host=guacd_host, port=guacd_port)
         guac.connect()
         kwargs = {
             'hostname': host,
@@ -258,7 +261,7 @@ def on_start_rdp(data):
             'domain': domain,
             'password': password,
             'ignore-cert': 'true',
-            'security': 'nla',
+            'security': secret.get('security', 'any'),
             'width': width,
             'height': height,
             'color-depth': '32'
@@ -274,6 +277,8 @@ def on_start_rdp(data):
         socketio.start_background_task(proxy_guac_output, sid, guac)
         
     except Exception as e:
+        import traceback
+        current_app.logger.error(f"RDP Start Error: {e}\n{traceback.format_exc()}")
         print(f"RDP Start Error: {e}")
         emit("guac_state", 4)
 

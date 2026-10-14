@@ -20,4 +20,4 @@ RUN mkdir -p /tmp/vault_keys
 EXPOSE 5055
 
 # Run DB migrations then start with gunicorn
-CMD ["sh", "-c", "flask db upgrade && gunicorn --bind 0.0.0.0:5055 --workers 4 --timeout 120 'run:app'"]
+CMD ["sh", "-c", "flask db upgrade && gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker --bind 0.0.0.0:5055 --workers 1 --timeout 120 'run:app'"]

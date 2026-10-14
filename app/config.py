@@ -58,6 +58,10 @@ class Config:
     # File storage for SSH keys
     SSH_DOWNLOAD_DIR = os.getenv("SSH_DOWNLOAD_DIR", "/tmp/vault_keys")
 
+    # Guacamole Daemon (guacd) for RDP
+    GUACD_HOST = os.getenv("GUACD_HOST", "guacd")
+    GUACD_PORT = int(os.getenv("GUACD_PORT", 4822))
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

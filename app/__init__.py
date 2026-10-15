@@ -146,6 +146,11 @@ def create_app(config=None):
     with app.app_context():
         _seed_admin(app)
 
+    # Start background alert scheduler if Telegram bot token is configured
+    if app.config.get("TELEGRAM_ALERT_BOT_TOKEN"):
+        from app.utils.alert_manager import start_alert_scheduler
+        start_alert_scheduler(app)
+
     return app
 
 

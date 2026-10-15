@@ -10,6 +10,53 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   <link rel="stylesheet" href="/static/css/style.css?v=1.5" />
+  <style>
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #374151;
+      transition: .25s ease;
+      border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .25s ease;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    input:checked + .slider {
+      background-color: #10b981;
+    }
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+    .alert-toggle-card.active {
+      border-color: rgba(16, 185, 129, 0.4) !important;
+      background: rgba(16, 185, 129, 0.05) !important;
+    }
+    .alert-toggle-card.disabled-card {
+      opacity: 0.55;
+    }
+  </style>
 </head>
 <body>
   <!-- Login Overlay -->
@@ -62,6 +109,9 @@
         <div class="nav-section-label">Overview</div>
         <a href="#" class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
           <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="monitor" onclick="navigate('monitor')">
+          <span class="nav-icon">🖥️</span><span class="nav-label">Monitoring & Alerts</span>
         </a>
 
         <div class="nav-section-label">Credentials</div>
@@ -120,6 +170,10 @@
       <header class="top-bar">
         <div class="page-title" id="page-title">Dashboard</div>
         <div class="top-bar-actions">
+          <button id="btn-toggle-alerts" class="btn btn-sm btn-ghost" onclick="toggleAlertMonitoring()" title="Bật/Tắt Cảnh báo Hiệu năng Telegram" style="display:flex;align-items:center;gap:6px;border:1px solid rgba(34,197,94,0.3);background:rgba(34,197,94,0.08);color:#4ade80;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.25s">
+            <span id="alert-toggle-icon">🔔</span>
+            <span id="alert-toggle-label">Alerts: ON</span>
+          </button>
           <a href="/apidocs" target="_blank" class="btn btn-ghost btn-sm">📖 API Docs</a>
           <div class="vault-status" id="vault-status">
             <span class="status-dot"></span> Vault
@@ -193,6 +247,205 @@
             <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Status</th><th>IP</th></tr></thead>
             <tbody id="recent-logs-body"><tr><td colspan="5" class="loading-cell">Loading...</td></tr></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ===================== MONITORING & ALERT CENTER PAGE ===================== -->
+      <div id="page-monitor" class="page hidden">
+        <!-- Top Section Header -->
+        <div class="section-header" style="margin-bottom: 20px;">
+          <div>
+            <h2 class="section-title" style="display:flex;align-items:center;gap:10px">
+              <span>🖥️</span> Remote Monitoring & Alert Center
+            </h2>
+            <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">
+              Giám sát hiệu năng máy chủ tập trung (CPU, RAM, Ổ cứng, Uptime) & Cấu hình cảnh báo Telegram thời gian thực
+            </div>
+          </div>
+          <div class="section-actions" style="display:flex;align-items:center;gap:10px">
+            <div id="mon-scheduler-status-badge" class="badge badge-green" style="font-size:11.5px;padding:5px 10px;display:flex;align-items:center;gap:6px">
+              <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor"></span>
+              <span id="mon-scheduler-text">Scheduler: Tự động (3p/lần)</span>
+            </div>
+            <button id="btn-trigger-scan" class="btn btn-primary btn-sm" onclick="triggerManualScan()" style="display:flex;align-items:center;gap:6px">
+              <span>⚡</span> Quét toàn bộ ngay
+            </button>
+          </div>
+        </div>
+
+        <!-- 1. THẺ CẤU HÌNH CẢNH BÁO TELEGRAM (4 Tùy Chỉnh On/Off: Tất Cả, CPU, RAM, Disk) -->
+        <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:24px;box-shadow:0 8px 24px rgba(0,0,0,0.25)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px">
+                <span>⚙️</span> Tùy Chỉnh Bật / Tắt Cảnh Báo Telegram
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:3px">
+                Kiểm soát luồng thông báo gửi về Telegram nhóm. Bật/tắt toàn bộ hoặc tùy biến riêng cho từng chỉ số phần cứng:
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" onclick="setAllAlerts(true)" style="font-size:11.5px;padding:4px 12px;color:var(--accent-green);border:1px solid rgba(34,197,94,0.3);border-radius:6px">
+                ✓ Bật tất cả
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="setAllAlerts(false)" style="font-size:11.5px;padding:4px 12px;color:var(--accent-red);border:1px solid rgba(239,68,68,0.3);border-radius:6px">
+                ✕ Tắt tất cả
+              </button>
+            </div>
+          </div>
+
+          <!-- Grid 4 Toggle Cards -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:14px">
+            <!-- Card 1: TẤT CẢ (Master All) -->
+            <div class="alert-toggle-card active" id="card-alert-all" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-md);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;transition:all 0.25s">
+              <div>
+                <div style="font-size:13.5px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px">
+                  <span>🔔</span> Tất Cả Cảnh Báo
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Tổng công tắc toàn hệ thống</div>
+                <div id="lbl-status-all" style="font-size:11px;font-weight:700;color:var(--accent-green);margin-top:4px">ĐANG BẬT</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="switch-alert-all" checked onchange="onToggleSwitchChange('all')">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- Card 2: CPU Alert -->
+            <div class="alert-toggle-card active" id="card-alert-cpu" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-md);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;transition:all 0.25s">
+              <div>
+                <div style="font-size:13.5px;font-weight:700;color:#38bdf8;display:flex;align-items:center;gap:6px">
+                  <span>⚡</span> Cảnh Báo CPU
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Ngưỡng: CPU ≥ 95%</div>
+                <div id="lbl-status-cpu" style="font-size:11px;font-weight:700;color:var(--accent-green);margin-top:4px">ĐANG BẬT</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="switch-alert-cpu" checked onchange="onToggleSwitchChange('cpu')">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- Card 3: RAM Alert -->
+            <div class="alert-toggle-card active" id="card-alert-ram" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-md);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;transition:all 0.25s">
+              <div>
+                <div style="font-size:13.5px;font-weight:700;color:#c084fc;display:flex;align-items:center;gap:6px">
+                  <span>🧠</span> Cảnh Báo RAM
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Ngưỡng: RAM Free &lt; 1 GB</div>
+                <div id="lbl-status-ram" style="font-size:11px;font-weight:700;color:var(--accent-green);margin-top:4px">ĐANG BẬT</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="switch-alert-ram" checked onchange="onToggleSwitchChange('ram')">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- Card 4: DISK Alert -->
+            <div class="alert-toggle-card active" id="card-alert-disk" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:var(--radius-md);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;transition:all 0.25s">
+              <div>
+                <div style="font-size:13.5px;font-weight:700;color:#fbbf24;display:flex;align-items:center;gap:6px">
+                  <span>💾</span> Cảnh Báo Ổ Cứng
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Ngưỡng: Trống &lt; 2 GB (≥ 90%)</div>
+                <div id="lbl-status-disk" style="font-size:11px;font-weight:700;color:var(--accent-green);margin-top:4px">ĐANG BẬT</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="switch-alert-disk" checked onchange="onToggleSwitchChange('disk')">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. THỐNG KÊ QUÉT GIÁM SÁT (4 Stats Mini Cards) -->
+        <div class="stats-grid" style="margin-bottom:24px">
+          <div class="stat-card">
+            <div class="stat-icon">🖥️</div>
+            <div class="stat-info">
+              <div class="stat-value" id="mon-stat-total">—</div>
+              <div class="stat-label">Tổng Máy Chủ Theo Dõi</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="color:var(--accent-green)">🟢</div>
+            <div class="stat-info">
+              <div class="stat-value" id="mon-stat-healthy" style="color:var(--accent-green)">—</div>
+              <div class="stat-label">Máy Chủ An Toàn (OK)</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon" style="color:var(--accent-red)">🚨</div>
+            <div class="stat-info">
+              <div class="stat-value" id="mon-stat-alerts" style="color:var(--accent-red)">—</div>
+              <div class="stat-label">Đang Chạm Ngưỡng Cảnh Báo</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-info">
+              <div class="stat-value" id="mon-stat-last-scan" style="font-size:15px;line-height:1.3">—</div>
+              <div class="stat-label">Thời Gian Quét Cuối</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. DANH SÁCH MÁY CHỦ ĐANG BỊ CẢNH BÁO (Active Violations) -->
+        <div id="mon-violations-card" style="margin-bottom:28px">
+          <div class="section-header">
+            <h2 class="section-title" style="color:var(--accent-red);display:flex;align-items:center;gap:8px">
+              <span>🚨</span> Máy Chủ Đang Chạm Ngưỡng Cảnh Báo (<span id="mon-violations-count">0</span>)
+            </h2>
+          </div>
+          <div class="table-container" style="background:rgba(239,68,68,0.02);border:1px solid rgba(239,68,68,0.25)">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Máy Chủ</th>
+                  <th>Chỉ Số Vi Phạm</th>
+                  <th>Tải CPU / RAM Khả Dụng</th>
+                  <th>Uptime</th>
+                  <th style="width:120px">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="mon-violations-body">
+                <tr><td colspan="5" class="loading-cell">Đang tải danh sách cảnh báo...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. DANH SÁCH TOÀN BỘ MÁY CHỦ GIÁM SÁT (All Monitored Servers) -->
+        <div>
+          <div class="section-header">
+            <h2 class="section-title">Toàn Bộ Máy Chủ Trong Hệ Thống</h2>
+            <div class="section-actions" style="display:flex;gap:10px">
+              <input type="text" id="mon-server-filter" class="search-input" placeholder="🔍 Tìm kiếm tên / ID server..." oninput="filterMonitoredServers()" style="width:240px">
+              <select id="mon-status-filter" class="form-control" style="width:150px;height:34px;font-size:12px;background:#161b22;border-color:var(--border);color:#fff" onchange="filterMonitoredServers()">
+                <option value="all">Tất cả trạng thái</option>
+                <option value="alert">Chỉ Cảnh báo (🚨)</option>
+                <option value="healthy">Chỉ An toàn (🟢)</option>
+                <option value="skipped">Chỉ Windows RDP (🪟)</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tên Máy Chủ / ID</th>
+                  <th>Trạng Thái</th>
+                  <th>CPU Usage</th>
+                  <th>RAM Khả Dụng</th>
+                  <th>Uptime</th>
+                  <th style="width:110px">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="mon-servers-body">
+                <tr><td colspan="6" class="loading-cell">Đang tải dữ liệu máy chủ...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -887,6 +1140,9 @@
             <option value="5000">Auto: 5s</option>
             <option value="0">Manual</option>
           </select>
+          <button id="btn-mon-toggle-alerts" class="btn btn-ghost btn-sm" onclick="toggleAlertMonitoring()" title="Bật/Tắt Cảnh báo Telegram" style="padding:4px 8px;font-size:11px;border-radius:14px;border:1px solid rgba(255,255,255,0.1)">
+            🔔 Alerts: ON
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="refreshMonitor()" title="Refresh now" style="padding:4px 8px">🔄</button>
           <button class="modal-close" onclick="closeServerMonitor()">✕</button>
         </div>

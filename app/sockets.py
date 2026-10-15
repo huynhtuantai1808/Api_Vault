@@ -2,6 +2,7 @@
 app/sockets.py - Web SSH Terminal logic
 """
 import io
+import os
 import time
 import paramiko
 from flask import request
@@ -142,6 +143,69 @@ def _connect_ssh_client(owner, slug, app, secret=None):
         ssh = TOTPSSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+        # ── Đọc SSH Config (~/.ssh/config) để hỗ trợ server cũ ──
+        # Apply per-host settings: KexAlgorithms, HostKeyAlgorithms, MACs, User
+        ssh_cfg_path = os.path.expanduser("~/.ssh/config")
+        connect_kwargs = dict(
+            hostname=host,
+            port=port,
+            username=username,
+            timeout=12,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        extra_kw = {}
+        if os.path.isfile(ssh_cfg_path):
+            try:
+                cfg = paramiko.SSHConfig()
+                with open(ssh_cfg_path) as f:
+                    cfg.parse(f)
+                hconf = cfg.lookup(host)
+
+                # Merge per-host disabled_algorithms (enable legacy by NOT disabling them)
+                kex_extra = []
+                key_extra = []
+                mac_extra = []
+                if "kexalgorithms" in hconf:
+                    for algo in hconf["kexalgorithms"].split(","):
+                        a = algo.strip().lstrip("+")
+                        if a and a not in paramiko.Transport._preferred_kex:
+                            kex_extra.append(a)
+                if "hostkeyalgorithms" in hconf:
+                    for algo in hconf["hostkeyalgorithms"].split(","):
+                        a = algo.strip().lstrip("+")
+                        if a and a not in paramiko.Transport._preferred_keys:
+                            key_extra.append(a)
+                if "macs" in hconf:
+                    for algo in hconf["macs"].split(","):
+                        a = algo.strip().lstrip("+")
+                        if a and a not in paramiko.Transport._preferred_mac:
+                            mac_extra.append(a)
+
+                if kex_extra or key_extra or mac_extra:
+                    extra_kw["disabled_algorithms"] = {
+                        # NOTE: paramiko's disabled_algorithms REMOVES from negotiation.
+                        # To ADD legacy, we must patch _preferred_* on the Transport AFTER connect.
+                        # We'll use the 'passphrase' workaround: inject via connect 'transport_factory'.
+                        # Simpler: pre-patch globals before connect.
+                    }
+                    # Patch paramiko globals to accept legacy algorithms temporarily
+                    if kex_extra:
+                        paramiko.Transport._preferred_kex = (
+                            list(kex_extra) + list(paramiko.Transport._preferred_kex)
+                        )
+                    if key_extra:
+                        paramiko.Transport._preferred_keys = (
+                            list(key_extra) + list(paramiko.Transport._preferred_keys)
+                        )
+                    if mac_extra:
+                        paramiko.Transport._preferred_mac = (
+                            list(mac_extra) + list(paramiko.Transport._preferred_mac)
+                        )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug(f"SSH config parse error: {e}")
+
         if auth_type == "ssh_key":
             priv_key = secret.get("ssh_private_key")
             if not priv_key:
@@ -156,10 +220,10 @@ def _connect_ssh_client(owner, slug, app, secret=None):
                 except Exception:
                     key_file.seek(0)
                     pkey = paramiko.ECDSAKey.from_private_key(key_file)
-            ssh.connect(hostname=host, port=port, username=username, pkey=pkey, timeout=12, allow_agent=False, look_for_keys=False)
+            ssh.connect(**connect_kwargs, pkey=pkey)
         else:
             password = secret.get("password")
-            ssh.connect(hostname=host, port=port, username=username, password=password, timeout=12, allow_agent=False, look_for_keys=False)
+            ssh.connect(**connect_kwargs, password=password)
 
         return ssh
 

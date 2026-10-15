@@ -170,10 +170,18 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123456}
       GUACD_HOST: ${GUACD_HOST:-guacd}
       GUACD_PORT: ${GUACD_PORT:-4822}
+      TELEGRAM_ALERT_BOT_TOKEN: ${TELEGRAM_ALERT_BOT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT_ID: ${TELEGRAM_ALERT_CHAT_ID:-}
+      ALERT_SCAN_INTERVAL: ${ALERT_SCAN_INTERVAL:-180}
+      ALERT_CPU_THRESHOLD: ${ALERT_CPU_THRESHOLD:-95.0}
+      ALERT_RAM_MIN_FREE_GB: ${ALERT_RAM_MIN_FREE_GB:-1.0}
+      ALERT_DISK_MIN_FREE_GB: ${ALERT_DISK_MIN_FREE_GB:-2.0}
+      ALERT_ONLY_LINUX: ${ALERT_ONLY_LINUX:-true}
     ports:
       - "5055:5055"
     volumes:
       - ssh_keys:/tmp/vault_keys
+      - ./config:/root/.ssh/config:ro   # SSH config legacy algorithms (RSA, sha1)
     restart: always
 
 volumes:

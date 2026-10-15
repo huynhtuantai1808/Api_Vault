@@ -311,3 +311,137 @@ def system_stats():
             ).count(),
         },
     }), 200
+
+
+# ================================================================== ALERTS
+
+@admin_bp.route("/alert-scan", methods=["POST"])
+@require_auth()
+def trigger_alert_scan():
+    """
+    Manually trigger an immediate performance scan across all servers.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Scan completed summary
+    """
+    from app.utils.alert_manager import scan_all_servers
+    summary = scan_all_servers()
+    return jsonify(summary), 200
+
+
+@admin_bp.route("/alert-status", methods=["GET"])
+@require_auth()
+def alert_monitoring_status():
+    """
+    Get current alert monitoring status, active violations, and last scan summary.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Alert monitoring status
+    """
+    from app.utils.alert_manager import get_alert_status
+    return jsonify(get_alert_status()), 200
+
+
+@admin_bp.route("/alert-toggle", methods=["POST"])
+@require_auth()
+def toggle_alerts():
+    """
+    Toggle performance alerts on/off.
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Alerts toggled
+    """
+    from flask import current_app
+    from app.utils.alert_manager import set_alerts_enabled, is_alerts_enabled, send_telegram_alert
+    data = request.get_json(silent=True) or {}
+    if "enabled" in data:
+        new_state = set_alerts_enabled(data["enabled"])
+    else:
+        new_state = set_alerts_enabled(not is_alerts_enabled())
+
+    # Send status notification to Telegram group
+    bot_token = current_app.config.get("TELEGRAM_ALERT_BOT_TOKEN", "")
+    chat_id = current_app.config.get("TELEGRAM_ALERT_CHAT_ID", "")
+    if bot_token and chat_id:
+        status_text = "ĐÃ ĐƯỢC BẬT" if new_state else "ĐÃ TẠM DỪNG (TẮT)"
+        icon = "🔔" if new_state else "🔕"
+        send_telegram_alert(
+            bot_token, chat_id,
+            f"{icon} *[HỆ THỐNG]* Cảnh báo hiệu năng máy chủ {status_text} bởi quản trị viên.",
+            force=True
+        )
+
+    return jsonify({
+        "enabled": new_state,
+        "message": f"Alerts are now {'enabled' if new_state else 'disabled'}"
+    }), 200
+
+
+@admin_bp.route("/alert-config", methods=["GET"])
+@require_auth()
+def get_alert_config_endpoint():
+    """
+    Get full alert configuration (All, CPU, RAM, Disk toggles) and status.
+    """
+    from app.utils.alert_manager import get_alert_status
+    return jsonify(get_alert_status()), 200
+
+
+@admin_bp.route("/alert-config", methods=["POST"])
+@require_auth()
+def set_alert_config_endpoint():
+    """
+    Update granular alert configuration.
+    Body example:
+    { "enabled": true, "cpu_enabled": true, "ram_enabled": false, "disk_enabled": true }
+    """
+    from flask import current_app
+    from app.utils.alert_manager import update_alert_config, send_telegram_alert, get_alert_status
+    data = request.get_json(silent=True) or {}
+    new_cfg = update_alert_config(data)
+
+    bot_token = current_app.config.get("TELEGRAM_ALERT_BOT_TOKEN", "")
+    chat_id = current_app.config.get("TELEGRAM_ALERT_CHAT_ID", "")
+    if bot_token and chat_id and data.get("notify_telegram", False):
+        user_name = "admin"
+        if g.get("current_user"):
+            user_name = g.current_user.username
+        msg = (
+            f"⚙️ *[CẬP NHẬT CẤU HÌNH CẢNH BÁO]*\n\n"
+            f"• 🔔 *Tất cả (Master)*: `{'BẬT' if new_cfg['enabled'] else 'TẮT'}`\n"
+            f"• ⚡ *Cảnh báo CPU (>= 95%)*: `{'BẬT' if new_cfg['cpu_enabled'] else 'TẮT'}`\n"
+            f"• 🧠 *Cảnh báo RAM (< 1GB)*: `{'BẬT' if new_cfg['ram_enabled'] else 'TẮT'}`\n"
+            f"• 💾 *Cảnh báo Ổ cứng (< 2GB)*: `{'BẬT' if new_cfg['disk_enabled'] else 'TẮT'}`\n\n"
+            f"Cập nhật bởi: `{user_name}`"
+        )
+        send_telegram_alert(bot_token, chat_id, msg, force=True)
+
+    return jsonify({
+        "status": "success",
+        "config": new_cfg,
+        "alert_status": get_alert_status()
+    }), 200
+

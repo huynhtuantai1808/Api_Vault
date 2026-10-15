@@ -62,6 +62,15 @@ class Config:
     GUACD_HOST = os.getenv("GUACD_HOST", "guacd")
     GUACD_PORT = int(os.getenv("GUACD_PORT", 4822))
 
+    # Performance Monitoring & Telegram Alerts
+    TELEGRAM_ALERT_BOT_TOKEN = os.getenv("TELEGRAM_ALERT_BOT_TOKEN", "")
+    TELEGRAM_ALERT_CHAT_ID = os.getenv("TELEGRAM_ALERT_CHAT_ID", "")
+    ALERT_SCAN_INTERVAL = int(os.getenv("ALERT_SCAN_INTERVAL", 180))
+    ALERT_CPU_THRESHOLD = float(os.getenv("ALERT_CPU_THRESHOLD", 95.0))
+    ALERT_RAM_MIN_FREE_GB = float(os.getenv("ALERT_RAM_MIN_FREE_GB", 1.0))
+    ALERT_DISK_MIN_FREE_GB = float(os.getenv("ALERT_DISK_MIN_FREE_GB", 2.0))
+    ALERT_ONLY_LINUX = os.getenv("ALERT_ONLY_LINUX", "true").lower() in ("true", "1", "yes")
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

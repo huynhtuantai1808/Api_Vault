@@ -97,6 +97,7 @@ function initApp() {
   }
 
   checkVaultHealth();
+  fetchAlertStatus();
   navigate('dashboard');
 }
 
@@ -124,6 +125,7 @@ function navigate(page) {
   // Update title
   const titles = {
     dashboard: 'Dashboard',
+    monitor: 'Monitoring & Alert Center',
     secrets: 'Server Secrets',
     ssh: 'SSH Certificates',
     apikeys: 'API Keys',
@@ -138,6 +140,7 @@ function navigate(page) {
   // Load data
   const loaders = {
     dashboard: loadDashboard,
+    monitor: loadMonitorPageData,
     secrets: loadSecrets,
     apikeys: loadAPIKeys,
     users: loadUsers,
@@ -2061,6 +2064,433 @@ function renderMonitorData(data) {
   }
 }
 
+// ─── Performance Alert & Monitoring Center ──────────────────────────────────
+let _isAlertsEnabled = true;
+let _alertConfig = {
+  enabled: true,
+  cpu_enabled: true,
+  ram_enabled: true,
+  disk_enabled: true
+};
+
+let _monitorServersData = [];
+let _monitorAlertStatus = null;
+
+async function fetchAlertStatus() {
+  try {
+    const res = await apiFetch('/admin/alert-config');
+    if (res?.ok) {
+      const data = await res.json();
+      _alertConfig = data.config || _alertConfig;
+      updateAlertUI(_alertConfig);
+    }
+  } catch (e) {
+    console.debug('Failed to fetch alert config:', e);
+  }
+}
+
+function updateAlertUI(cfg) {
+  if (typeof cfg === 'boolean') {
+    _isAlertsEnabled = cfg;
+    _alertConfig.enabled = cfg;
+  } else if (cfg && typeof cfg === 'object') {
+    _alertConfig = { ..._alertConfig, ...cfg };
+    _isAlertsEnabled = _alertConfig.enabled !== false;
+  }
+
+  // Top bar toggle button
+  const topBtn = document.getElementById('btn-toggle-alerts');
+  const iconEl = document.getElementById('alert-toggle-icon');
+  const labelEl = document.getElementById('alert-toggle-label');
+  if (topBtn) {
+    if (_isAlertsEnabled) {
+      if (iconEl) iconEl.textContent = '🔔';
+      if (labelEl) labelEl.textContent = 'Alerts: ON';
+      topBtn.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+      topBtn.style.background = 'rgba(34, 197, 94, 0.1)';
+      topBtn.style.color = '#4ade80';
+      topBtn.title = 'Cảnh báo Telegram: ĐANG BẬT. Bấm để Tắt.';
+    } else {
+      if (iconEl) iconEl.textContent = '🔕';
+      if (labelEl) labelEl.textContent = 'Alerts: OFF';
+      topBtn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+      topBtn.style.background = 'rgba(239, 68, 68, 0.1)';
+      topBtn.style.color = '#f87171';
+      topBtn.title = 'Cảnh báo Telegram: ĐANG TẮT. Bấm để Bật.';
+    }
+  }
+
+  // Modal toggle button
+  const monBtn = document.getElementById('btn-mon-toggle-alerts');
+  if (monBtn) {
+    if (_isAlertsEnabled) {
+      monBtn.textContent = '🔔 Alerts: ON';
+      monBtn.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+      monBtn.style.color = '#4ade80';
+    } else {
+      monBtn.textContent = '🔕 Alerts: OFF';
+      monBtn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+      monBtn.style.color = '#f87171';
+    }
+  }
+
+  // Monitor Page Granular Switches:
+  syncMonitorSwitch('all', _alertConfig.enabled !== false);
+  syncMonitorSwitch('cpu', _alertConfig.cpu_enabled !== false);
+  syncMonitorSwitch('ram', _alertConfig.ram_enabled !== false);
+  syncMonitorSwitch('disk', _alertConfig.disk_enabled !== false);
+
+  // Scheduler status badge
+  const schedBadge = document.getElementById('mon-scheduler-status-badge');
+  const schedText = document.getElementById('mon-scheduler-text');
+  if (schedBadge && schedText) {
+    if (_alertConfig.enabled) {
+      schedBadge.className = 'badge badge-green';
+      schedText.textContent = 'Scheduler: Tự động (3p/lần)';
+    } else {
+      schedBadge.className = 'badge badge-red';
+      schedText.textContent = 'Scheduler: Đang tạm dừng';
+    }
+  }
+}
+
+function syncMonitorSwitch(metric, isActive) {
+  const switchEl = document.getElementById(`switch-alert-${metric}`);
+  const cardEl = document.getElementById(`card-alert-${metric}`);
+  const lblEl = document.getElementById(`lbl-status-${metric}`);
+
+  if (switchEl) switchEl.checked = isActive;
+  if (cardEl) cardEl.classList.toggle('active', isActive);
+  if (lblEl) {
+    lblEl.textContent = isActive ? 'ĐANG BẬT' : 'ĐÃ TẮT';
+    lblEl.style.color = isActive ? 'var(--accent-green)' : 'var(--accent-red)';
+  }
+}
+
+window.toggleAlertMonitoring = async function() {
+  const targetState = !_isAlertsEnabled;
+  try {
+    const res = await apiFetch('/admin/alert-config', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: targetState, notify_telegram: false })
+    });
+    if (res?.ok) {
+      const data = await res.json();
+      updateAlertUI(data.config || { enabled: targetState });
+      showToast(
+        targetState ? '🔔 Đã BẬT cảnh báo Telegram cho máy chủ' : '🔕 Đã TẮT (tạm dừng) cảnh báo Telegram',
+        targetState ? 'success' : 'info'
+      );
+    } else {
+      showToast('Không thể thay đổi trạng thái cảnh báo', 'error');
+    }
+  } catch (e) {
+    showToast('Lỗi kết nối khi bật/tắt cảnh báo', 'error');
+  }
+};
+
+window.onToggleSwitchChange = async function(metric) {
+  const switchEl = document.getElementById(`switch-alert-${metric}`);
+  if (!switchEl) return;
+  const isChecked = switchEl.checked;
+
+  const payload = {};
+  if (metric === 'all') payload.enabled = isChecked;
+  else if (metric === 'cpu') payload.cpu_enabled = isChecked;
+  else if (metric === 'ram') payload.ram_enabled = isChecked;
+  else if (metric === 'disk') payload.disk_enabled = isChecked;
+
+  try {
+    const res = await apiFetch('/admin/alert-config', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (res?.ok) {
+      const data = await res.json();
+      updateAlertUI(data.config || payload);
+
+      const msgMap = {
+        all: isChecked ? '🔔 Đã BẬT toàn bộ hệ thống cảnh báo' : '🔕 Đã TẮT toàn bộ hệ thống cảnh báo',
+        cpu: isChecked ? '⚡ Đã BẬT cảnh báo CPU (≥ 95%)' : '⚡ Đã TẮT cảnh báo CPU',
+        ram: isChecked ? '🧠 Đã BẬT cảnh báo RAM (< 1GB)' : '🧠 Đã TẮT cảnh báo RAM',
+        disk: isChecked ? '💾 Đã BẬT cảnh báo Ổ cứng (< 2GB)' : '💾 Đã TẮT cảnh báo Ổ cứng'
+      };
+      showToast(msgMap[metric] || 'Đã cập nhật cấu hình cảnh báo', isChecked ? 'success' : 'info');
+    } else {
+      switchEl.checked = !isChecked; // rollback
+      syncMonitorSwitch(metric, !isChecked);
+      showToast('Không thể lưu cấu hình cảnh báo', 'error');
+    }
+  } catch (e) {
+    switchEl.checked = !isChecked;
+    syncMonitorSwitch(metric, !isChecked);
+    showToast('Lỗi kết nối khi cập nhật cảnh báo', 'error');
+  }
+};
+
+window.setAllAlerts = async function(enableBool) {
+  const payload = {
+    enabled: enableBool,
+    cpu_enabled: enableBool,
+    ram_enabled: enableBool,
+    disk_enabled: enableBool
+  };
+
+  try {
+    const res = await apiFetch('/admin/alert-config', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (res?.ok) {
+      const data = await res.json();
+      updateAlertUI(data.config || payload);
+      showToast(
+        enableBool ? '✓ Đã BẬT tất cả cảnh báo (Tất cả, CPU, RAM, Ổ cứng)' : '✕ Đã TẮT tất cả cảnh báo',
+        enableBool ? 'success' : 'info'
+      );
+    } else {
+      showToast('Không thể cập nhật trạng thái cảnh báo', 'error');
+    }
+  } catch (e) {
+    showToast('Lỗi kết nối khi cập nhật cảnh báo', 'error');
+  }
+};
+
+window.triggerManualScan = async function() {
+  const btn = document.getElementById('btn-trigger-scan');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Đang quét toàn bộ...';
+  }
+
+  try {
+    const res = await apiFetch('/admin/alert-scan', { method: 'POST' });
+    if (res?.ok) {
+      const summary = await res.json();
+      const healthy = summary.healthy_count || 0;
+      const alerted = summary.alert_count || 0;
+      const skipped = summary.skipped_count || 0;
+      showToast(`⚡ Quét xong: ${healthy} an toàn, ${alerted} cảnh báo, ${skipped} bỏ qua (Windows/offline)`, 'success');
+      await loadMonitorPageData();
+    } else {
+      showToast('Không thể thực hiện quét hiệu năng', 'error');
+    }
+  } catch (e) {
+    showToast('Lỗi khi quét hiệu năng máy chủ', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
+window.loadMonitorPageData = async function() {
+  const vBody = document.getElementById('mon-violations-body');
+  const sBody = document.getElementById('mon-servers-body');
+  if (vBody) vBody.innerHTML = '<tr><td colspan="5" class="loading-cell">Đang tải danh sách cảnh báo...</td></tr>';
+  if (sBody) sBody.innerHTML = '<tr><td colspan="6" class="loading-cell">Đang tải dữ liệu máy chủ...</td></tr>';
+
+  try {
+    const [cfgRes, secRes] = await Promise.all([
+      apiFetch('/admin/alert-config'),
+      apiFetch('/secrets')
+    ]);
+
+    let alertData = {};
+    if (cfgRes?.ok) {
+      alertData = await cfgRes.json();
+      _monitorAlertStatus = alertData;
+      if (alertData.config) {
+        updateAlertUI(alertData.config);
+      }
+    }
+
+    if (secRes?.ok) {
+      const secData = await secRes.json();
+      _monitorServersData = secData.secrets || [];
+    }
+
+    renderMonitorPageOverview(alertData, _monitorServersData);
+  } catch (e) {
+    console.error('Error loading monitor page data:', e);
+    showToast('Lỗi tải dữ liệu giám sát', 'error');
+  }
+};
+
+function renderMonitorPageOverview(alertStatus, servers) {
+  const totalServers = servers.length;
+  const activeAlerts = alertStatus?.active_alerts || [];
+  const lastScan = alertStatus?.last_scan || {};
+
+  // Stats Mini Cards
+  const totalEl = document.getElementById('mon-stat-total');
+  const healthyEl = document.getElementById('mon-stat-healthy');
+  const alertsEl = document.getElementById('mon-stat-alerts');
+  const lastScanEl = document.getElementById('mon-stat-last-scan');
+
+  if (totalEl) totalEl.textContent = totalServers;
+  if (alertsEl) alertsEl.textContent = activeAlerts.length;
+  if (healthyEl) {
+    if (lastScan.healthy_count !== undefined) {
+      healthyEl.textContent = lastScan.healthy_count;
+    } else {
+      healthyEl.textContent = Math.max(0, totalServers - activeAlerts.length);
+    }
+  }
+  if (lastScanEl) {
+    if (lastScan.timestamp) {
+      const d = new Date(lastScan.timestamp * 1000);
+      lastScanEl.textContent = d.toLocaleTimeString() + ' ' + d.toLocaleDateString();
+    } else {
+      lastScanEl.textContent = 'Chưa quét';
+    }
+  }
+
+  // Active Violations Table
+  const vBody = document.getElementById('mon-violations-body');
+  const vCount = document.getElementById('mon-violations-count');
+  if (vCount) vCount.textContent = activeAlerts.length;
+
+  if (vBody) {
+    if (activeAlerts.length === 0) {
+      vBody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align:center;padding:26px;color:var(--accent-green);font-weight:600">
+            <div style="font-size:24px;margin-bottom:6px">✅</div>
+            Hệ thống an toàn! Không có máy chủ nào vi phạm ngưỡng cảnh báo hiệu năng (CPU < 95%, Free RAM ≥ 1GB, Free Disk ≥ 2GB).
+          </td>
+        </tr>
+      `;
+    } else {
+      vBody.innerHTML = activeAlerts.map(a => {
+        const issuesHtml = (a.issues || []).map(iss => 
+          `<span class="badge badge-red" style="margin-right:4px;display:inline-block;margin-bottom:3px;font-size:11px">⚠️ ${iss}</span>`
+        ).join('');
+        const safeSlug = (a.slug || '').replace(/'/g, "\\'");
+        const safeName = (a.hostname || a.slug || '').replace(/'/g, "\\'");
+        return `
+          <tr style="background:rgba(239,68,68,0.06)">
+            <td>
+              <div style="font-weight:700;color:#fff">${a.hostname || a.slug}</div>
+              <div class="mono" style="font-size:11px;color:var(--text-muted)">${a.slug}</div>
+            </td>
+            <td>${issuesHtml || '<span class="badge badge-red">Chạm ngưỡng</span>'}</td>
+            <td>${a.metrics?.cpu_pct !== undefined ? `${a.metrics.cpu_pct}% CPU | ${a.metrics.ram_free_gb || '—'} GB RAM trống` : '—'}</td>
+            <td>${a.metrics?.uptime || '—'}</td>
+            <td>
+              <button class="btn btn-ghost btn-sm" onclick="openServerMonitor('${safeSlug}', '${safeName}')" title="Mở Dashboard thời gian thực" style="color:var(--accent-blue)">
+                📊 Xem trực tiếp
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // Render Monitored Servers Table
+  filterMonitoredServers();
+}
+
+window.filterMonitoredServers = function() {
+  const sBody = document.getElementById('mon-servers-body');
+  if (!sBody) return;
+
+  const searchInput = document.getElementById('mon-server-filter');
+  const statusSelect = document.getElementById('mon-status-filter');
+
+  const query = (searchInput?.value || '').trim().toLowerCase();
+  const statusFilter = statusSelect?.value || 'all';
+
+  const alertMap = {};
+  if (_monitorAlertStatus?.active_alerts) {
+    _monitorAlertStatus.active_alerts.forEach(a => {
+      alertMap[a.slug] = a;
+    });
+  }
+
+  const scanResultsMap = {};
+  if (_monitorAlertStatus?.last_scan?.all_results) {
+    _monitorAlertStatus.last_scan.all_results.forEach(r => {
+      if (r.slug) scanResultsMap[r.slug] = r;
+    });
+  }
+
+  let filtered = _monitorServersData.filter(s => {
+    // Search filter
+    if (query) {
+      const matchName = (s.name || '').toLowerCase().includes(query);
+      const matchId = (s._id || '').toLowerCase().includes(query);
+      const matchHost = (s.host || '').toLowerCase().includes(query);
+      if (!matchName && !matchId && !matchHost) return false;
+    }
+
+    // Status filter
+    const isWindows = (s.os_type === 'windows' || s.protocol === 'rdp');
+    const isAlerting = !!alertMap[s._id];
+
+    if (statusFilter === 'alert' && !isAlerting) return false;
+    if (statusFilter === 'healthy' && (isAlerting || isWindows)) return false;
+    if (statusFilter === 'skipped' && !isWindows) return false;
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    sBody.innerHTML = '<tr><td colspan="6" class="loading-cell">Không tìm thấy máy chủ phù hợp với bộ lọc</td></tr>';
+    return;
+  }
+
+  sBody.innerHTML = filtered.map(s => {
+    const isWindows = (s.os_type === 'windows' || s.protocol === 'rdp');
+    const alertInfo = alertMap[s._id];
+    const scanInfo = scanResultsMap[s._id];
+
+    let statusBadge = '<span class="badge badge-green">🟢 An toàn</span>';
+    if (isWindows) {
+      statusBadge = '<span class="badge badge-gray">🪟 Windows (Skip)</span>';
+    } else if (alertInfo) {
+      statusBadge = '<span class="badge badge-red">🚨 Cảnh báo</span>';
+    } else if (scanInfo?.status === 'error' || scanInfo?.status === 'offline') {
+      statusBadge = '<span class="badge badge-amber">⚠️ Mất kết nối</span>';
+    }
+
+    const cpuText = scanInfo?.metrics?.cpu_pct !== undefined 
+      ? `${scanInfo.metrics.cpu_pct}%` 
+      : (alertInfo?.metrics?.cpu_pct !== undefined ? `${alertInfo.metrics.cpu_pct}%` : '—');
+
+    const ramText = scanInfo?.metrics?.ram_free_gb !== undefined
+      ? `${scanInfo.metrics.ram_free_gb} GB`
+      : (alertInfo?.metrics?.ram_free_gb !== undefined ? `${alertInfo.metrics.ram_free_gb} GB` : '—');
+
+    const uptimeText = scanInfo?.metrics?.uptime || alertInfo?.metrics?.uptime || '—';
+    const safeSlug = (s._id || '').replace(/'/g, "\\'");
+    const safeName = (s.name || s._id || '').replace(/'/g, "\\'");
+
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:600;display:flex;align-items:center;gap:6px">
+            <span>${isWindows ? '🪟' : '🐧'}</span>
+            <span>${s.name || s._id}</span>
+          </div>
+          <div class="mono" style="font-size:11px;color:var(--text-muted)">${s.host || s._id}</div>
+        </td>
+        <td>${statusBadge}</td>
+        <td><span class="mono" style="font-weight:600">${cpuText}</span></td>
+        <td><span class="mono">${ramText}</span></td>
+        <td><span style="font-size:12px;color:var(--text-secondary)">${uptimeText}</span></td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="openServerMonitor('${safeSlug}', '${safeName}')" title="Mở Dashboard thời gian thực">
+            📊 Giám sát
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+};
 
 if (authToken && currentUser) {
   initApp();

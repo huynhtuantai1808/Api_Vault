@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create SSH key download dir
-RUN mkdir -p /tmp/vault_keys
+# Create SSH key download dir + ~/.ssh dir (for mounted config)
+RUN mkdir -p /tmp/vault_keys && mkdir -p /root/.ssh && chmod 700 /root/.ssh
 
 EXPOSE 5055
 
